@@ -1,3 +1,5 @@
+from flask import Flask, request
+import threading
 import os
 import requests
 import logging
@@ -9,6 +11,15 @@ import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from apscheduler.schedulers.background import BackgroundScheduler
 
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Crypto Bot is running!"
+
+@app.route('/health')
+def health():
+    return "OK"
 # Налаштування
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -447,6 +458,19 @@ def market_stats(message):
     except Exception as e:
         logger.error(f"Error in stats: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+def run_flask():
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+
+if __name__ == "__main__":
+    # Запускаємо Flask у окремому потоці
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    logger.info("Бот запущений...")
+    bot.polling(none_stop=True)
 
 if __name__ == "__main__":
     # Отримуємо порт з оточення (потрібно для Render)
