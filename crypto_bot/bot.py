@@ -1,21 +1,20 @@
 import os
 import requests
 import numpy as np
-import pandas as pd
 import logging
 from datetime import datetime
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
-import sys
-if sys.prefix == sys.base_prefix:
-    print("Помилка: запускайте бота у віртуальному оточенні!")
-    sys.exit(1)
-    
+
 # Налаштування
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN не знайдено в змінних оточення")
+    exit(1)
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Глобальні змінні для налаштувань
@@ -36,7 +35,7 @@ def get_klines(symbol, interval="1h", limit=200):
             'interval': interval,
             'limit': limit
         }
-        data = requests.get(url, params=params).json()
+        data = requests.get(url, params=params, timeout=10).json()
         
         if not data:
             return None
@@ -56,14 +55,20 @@ def get_klines(symbol, interval="1h", limit=200):
 
 def find_support_resistance(prices, window=20, delta=0.005):
     """Знаходження рівнів підтримки та опору"""
-    rolling_high = pd.Series(prices).rolling(window=window).max()
-    rolling_low = pd.Series(prices).rolling(window=window).min()
+    # Замінюємо pandas на чистий numpy
+    prices_series = np.array(prices)
+    rolling_high = np.zeros_like(prices_series)
+    rolling_low = np.zeros_like(prices_series)
+    
+    for i in range(window, len(prices_series)):
+        rolling_high[i] = np.max(prices_series[i-window:i])
+        rolling_low[i] = np.min(prices_series[i-window:i])
     
     levels = []
-    for i in range(window, len(prices)):
-        if prices[i] >= rolling_high[i] * (1 - delta):
+    for i in range(window, len(prices_series)):
+        if prices_series[i] >= rolling_high[i] * (1 - delta):
             levels.append(rolling_high[i])
-        elif prices[i] <= rolling_low[i] * (1 + delta):
+        elif prices_series[i] <= rolling_low[i] * (1 + delta):
             levels.append(rolling_low[i])
     
     return sorted(set(levels))
@@ -74,9 +79,13 @@ def calculate_technical_indicators(closes, volumes):
     volumes = np.array(volumes)
     
     # RSI
+    if len(closes) < 15:
+        return 50, False  # Недостатньо даних для розрахунку RSI
+    
     delta = np.diff(closes)
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta < 0, -delta, 0)
+    
     avg_gain = np.mean(gain[:14])
     avg_loss = np.mean(loss[:14])
     
@@ -91,7 +100,10 @@ def calculate_technical_indicators(closes, volumes):
         rsi = 100 - (100 / (1 + rs))
     
     # Volume spike
-    vol_spike = volumes[-1] > 1.5 * np.mean(volumes[-20:]) if len(volumes) >= 20 else False
+    if len(volumes) >= 20:
+        vol_spike = volumes[-1] > 1.5 * np.mean(volumes[-20:])
+    else:
+        vol_spike = False
     
     return rsi, vol_spike
 
@@ -107,7 +119,6 @@ def send_welcome(message):
 /settings - Налаштування параметрів
 /check_token <token> - Перевірити конкретний токен
 /stats - Статистика ринку
-/alerts - Управління сповіщеннями
 """
     bot.reply_to(message, help_text)
 
@@ -136,7 +147,7 @@ def smart_auto_handler(message):
         msg = bot.send_message(message.chat.id, "🔍 Аналізую ринок...")
         
         url = "https://api.binance.com/api/v3/ticker/24hr"
-        data = requests.get(url).json()
+        data = requests.get(url, timeout=10).json()
 
         symbols = [
             d for d in data
@@ -195,7 +206,10 @@ def smart_auto_handler(message):
                         break
 
                 # Перевірка на памп/дамп
-                price_change_24h = (closes[-1] - closes[-24]) / closes[-24] * 100 if len(closes) >= 24 else 0
+                if len(closes) >= 24:
+                    price_change_24h = (closes[-1] - closes[-24]) / closes[-24] * 100
+                else:
+                    price_change_24h = 0
                 
                 if abs(price_change_24h) > 15 and vol_spike:
                     direction = "PUMP" if price_change_24h > 0 else "DUMP"
@@ -220,6 +234,7 @@ def smart_auto_handler(message):
             bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
 
     except Exception as e:
+        logger.error(f"Error in smart_auto: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 @bot.message_handler(commands=['check_token'])
@@ -259,6 +274,7 @@ RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепр
     except IndexError:
         bot.send_message(message.chat.id, "ℹ️ Використання: /check_token BTC")
     except Exception as e:
+        logger.error(f"Error in check_token: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 @bot.message_handler(commands=['stats'])
@@ -266,7 +282,7 @@ def market_stats(message):
     """Статистика ринку"""
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
-        data = requests.get(url).json()
+        data = requests.get(url, timeout=10).json()
         
         # Фільтруємо USDT пари з високим обсягом
         usdt_pairs = [d for d in data if d['symbol'].endswith('USDT') and float(d['quoteVolume']) > 1000000]
@@ -287,6 +303,7 @@ def market_stats(message):
         bot.send_message(message.chat.id, stats_text, parse_mode="HTML")
         
     except Exception as e:
+        logger.error(f"Error in stats: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
