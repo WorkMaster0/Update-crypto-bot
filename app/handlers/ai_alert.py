@@ -1,101 +1,129 @@
-# app/handlers/ai_alert.py
-from typing import Optional, Dict
-from app.analytics.indicators import (
+# handlers/ai_alert.py
+from app.analytics import (
     get_klines, ema, atr, calculate_rsi, calculate_macd,
-    find_levels, get_multi_timeframe_trend, find_atr_squeeze,
-    detect_liquidity_trap
+    find_levels, get_multi_timeframe_trend, get_crypto_sentiment,
+    find_atr_squeeze, detect_liquidity_trap
 )
+from app.bot import bot
 from datetime import datetime
 import numpy as np
 
-def generate_ai_signal(symbol: str, interval: str = "1h") -> Dict:
+def generate_ai_signal(symbol: str, interval: str = "1h") -> str:
+    """
+    Генерує сигнал для користувача.
+    Враховує:
+    - Тренд по EMA50/200
+    - RSI
+    - MACD
+    - ATR / squeeze
+    - Multi-timeframe тренд
+    - Патерни (auto pattern)
+    - Sentiment (Fear & Greed)
+    """
     candles = get_klines(symbol, interval=interval)
     c, h, l, v = candles["c"], candles["h"], candles["l"], candles["v"]
     last_price = c[-1]
 
-    # Основні індикатори
-    e50 = ema(c, 50)
-    e200 = ema(c, 200)
+    # --- Трендові індикатори ---
+    ema50 = ema(c, 50)
+    ema200 = ema(c, 200)
+    trend = "UP" if ema50[-1] > ema200[-1] else ("DOWN" if ema50[-1] < ema200[-1] else "FLAT")
+
     rsi = calculate_rsi(c)
     macd_line, signal_line, macd_hist = calculate_macd(c)
+    atr_value = atr(h, l, c)[-1]
 
-    # Підтримка / Опір
+    # --- Рівні support/resistance ---
     levels = find_levels(candles)
     sup = levels["near_support"]
     res = levels["near_resistance"]
 
-    # Мультитаймфрейм тренд
-    htf_trend = get_multi_timeframe_trend(symbol, interval)
+    # --- Multi-timeframe ---
+    ht_trend = get_multi_timeframe_trend(symbol, interval)
 
-    # ATR-сжаття
+    # --- Патерни ---
+    pattern_signal = detect_liquidity_trap(symbol, interval)
+
+    # --- ATR Squeeze ---
     squeeze_ratio = find_atr_squeeze(symbol, interval)
+    squeeze_info = "ATR Squeeze!" if squeeze_ratio < 0.7 else None
 
-    # Пастки ліквідності
-    trap_signal = detect_liquidity_trap(symbol, interval)
+    # --- Sentiment ---
+    sentiment_value, sentiment_text = get_crypto_sentiment()
 
-    # Патерн (простий приклад: подвійне дно / верх)
-    pattern_signal = None
-    if len(c) >= 20:
-        if c[-2] < c[-3] and c[-1] > c[-2]:
-            pattern_signal = "Double Bottom? ↑"
-        elif c[-2] > c[-3] and c[-1] < c[-2]:
-            pattern_signal = "Double Top? ↓"
-
-    # Логіка сигналу
-    confluence = 0
-    reason = []
-    direction = None
-
-    # LONG
-    if sup and last_price > sup and (last_price - sup) <= max(atr(h, l, c)[-1], last_price*0.004):
-        direction = "LONG"
-        if 30 < rsi[-1] < 70:
-            confluence += 1; reason.append("RSI ok")
-        if macd_hist[-1] > 0:
-            confluence += 1; reason.append("MACD Bull")
-        if htf_trend == "STRONG_UP":
-            confluence += 2; reason.append("HTF UP")
-        if squeeze_ratio < 0.75:
-            confluence += 1; reason.append("Squeeze")
-        if pattern_signal and "Bottom" in pattern_signal:
-            confluence += 1; reason.append("Pattern Bottom")
-
-    # SHORT
-    elif res and last_price < res and (res - last_price) <= max(atr(h, l, c)[-1], last_price*0.004):
-        direction = "SHORT"
-        if 30 < rsi[-1] < 70:
-            confluence += 1; reason.append("RSI ok")
-        if macd_hist[-1] < 0:
-            confluence += 1; reason.append("MACD Bear")
-        if htf_trend == "STRONG_DOWN":
-            confluence += 2; reason.append("HTF Down")
-        if squeeze_ratio < 0.75:
-            confluence += 1; reason.append("Squeeze")
-        if pattern_signal and "Top" in pattern_signal:
-            confluence += 1; reason.append("Pattern Top")
-
-    signal_text = f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} | {symbol} | "
-    if direction and confluence >= 3:
-        signal_text += f"✅ {direction} CONFLUENCE ({confluence}/6) | Reasons: {', '.join(reason)}"
-    elif direction:
-        signal_text += f"🟡 Weak {direction} ({confluence}/6) | Reasons: {', '.join(reason)}"
-    else:
-        signal_text += "ℹ️ No clear signal"
-
-    if trap_signal:
-        signal_text += f"\n⚠️ Liquidity Trap: {trap_signal}"
+    # --- Формування тексту ---
+    txt = [f"📊 <b>{symbol.upper()}</b> [{interval}] | Price: {last_price:.4f}"]
+    txt.append(f"Trend: {trend} | EMA50: {ema50[-1]:.4f} | EMA200: {ema200[-1]:.4f}")
+    txt.append(f"RSI(14): {rsi[-1]:.2f} | MACD Hist: {macd_hist[-1]:.4f}")
+    txt.append(f"HTF Trend: {ht_trend}")
+    if sentiment_value:
+        txt.append(f"🎭 Fear & Greed: {sentiment_value} ({sentiment_text})")
     if pattern_signal:
-        signal_text += f"\n🎯 Pattern: {pattern_signal}"
+        txt.append(pattern_signal)
+    if squeeze_info:
+        txt.append(squeeze_info)
 
-    return {
-        "symbol": symbol,
-        "interval": interval,
-        "direction": direction,
-        "confluence": confluence,
-        "signal_text": signal_text,
-        "levels": levels,
-        "trap_signal": trap_signal,
-        "pattern_signal": pattern_signal,
-        "squeeze_ratio": squeeze_ratio,
-        "htf_trend": htf_trend
-    }
+    # --- Конфлюєнс ---
+    confluence_score = 0
+    reasons = []
+
+    # LONG logic
+    if sup and last_price > sup and (last_price - sup) <= max(atr_value, last_price*0.004):
+        signal_dir = "LONG"
+        entry = last_price
+        stop = sup - atr_value*0.5
+        tp = res if res else last_price + 2*atr_value
+
+        if 30 < rsi[-1] < 70:
+            confluence_score += 1
+            reasons.append("RSI ok")
+        if macd_hist[-1] > 0:
+            confluence_score += 1
+            reasons.append("MACD bullish")
+        if trend == "UP":
+            confluence_score += 1
+            reasons.append("EMA trend UP")
+        if ht_trend == "STRONG_UP":
+            confluence_score += 2
+            reasons.append("HTF UP")
+        if sentiment_value and sentiment_value < 30:
+            confluence_score += 1
+            reasons.append("Extreme Fear")
+
+    # SHORT logic
+    elif res and last_price < res and (res - last_price) <= max(atr_value, last_price*0.004):
+        signal_dir = "SHORT"
+        entry = last_price
+        stop = res + atr_value*0.5
+        tp = sup if sup else last_price - 2*atr_value
+
+        if 30 < rsi[-1] < 70:
+            confluence_score += 1
+            reasons.append("RSI ok")
+        if macd_hist[-1] < 0:
+            confluence_score += 1
+            reasons.append("MACD bearish")
+        if trend == "DOWN":
+            confluence_score += 1
+            reasons.append("EMA trend DOWN")
+        if ht_trend == "STRONG_DOWN":
+            confluence_score += 2
+            reasons.append("HTF DOWN")
+        if sentiment_value and sentiment_value > 70:
+            confluence_score += 1
+            reasons.append("Extreme Greed")
+    else:
+        signal_dir = None
+        entry = stop = tp = None
+
+    # --- Формування фінального повідомлення ---
+    if signal_dir and confluence_score >= 3:
+        txt.append(f"✅ <b>{signal_dir} CONFLUENCE ({confluence_score}/7)</b>")
+        txt.append(f"Reason: {', '.join(reasons)}")
+        txt.append(f"Entry ~{entry:.4f}, SL {stop:.4f}, TP {tp:.4f}")
+    elif signal_dir:
+        txt.append(f"🟡 Weak {signal_dir} signal ({confluence_score}/7). Reason: {', '.join(reasons)}")
+    else:
+        txt.append("ℹ️ No clear entry points. Wait for new candle or interval change.")
+
+    return "\n".join(txt)
