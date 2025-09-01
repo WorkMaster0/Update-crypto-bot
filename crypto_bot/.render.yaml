@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: crypto-bot
+    env: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "python bot.py"
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
