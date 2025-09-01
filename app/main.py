@@ -1,37 +1,29 @@
 # main.py
 from flask import Flask, request
+from telebot import TeleBot, types
+from app.config import TELEGRAM_BOT_TOKEN
 from app.bot import bot
-import os
+from app.handlers import ai_alert_handler, ai_notify_handler
+from app.charts import plot_candles
+import io
 
 app = Flask(__name__)
 
-# ---------- Настройки ----------
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # повний URL: https://yourdomain.com/<token>
-
-# ---------- Webhook Routes ----------
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    """Отримує всі оновлення від Telegram через webhook"""
+# ---------- TELEGRAM WEBHOOK ----------
+@app.route(f"/webhook/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
+def telegram_webhook():
     json_data = request.get_json(force=True)
-    bot.process_new_updates([bot.types.Update.de_json(json_data)])
+    bot.process_new_updates([types.Update.de_json(json_data)])
     return "OK", 200
 
-@app.route("/")
-def index():
-    return "Bot is running!", 200
+# ---------- TEST GRAPH ENDPOINT ----------
+@app.route("/chart/<symbol>")
+def get_chart(symbol):
+    buf = plot_candles(symbol.upper(), interval="1h", limit=200)
+    return app.response_class(buf.getvalue(), mimetype='image/png')
 
-# ---------- Установка Webhook ----------
-def set_webhook():
-    if not WEBHOOK_URL:
-        raise RuntimeError("WEBHOOK_URL is not set")
-    success = bot.set_webhook(url=WEBHOOK_URL)
-    if success:
-        print(f"Webhook встановлено: {WEBHOOK_URL}")
-    else:
-        print("Помилка встановлення webhook")
-
-# ---------- Запуск Flask ----------
+# ---------- POLLING MODE (LOKALЬНЕ ТЕСТУВАННЯ) ----------
 if __name__ == "__main__":
-    set_webhook()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # Якщо локально, зручно тестувати через polling
+    print("Запуск бота в режимі polling...")
+    bot.infinity_polling()
