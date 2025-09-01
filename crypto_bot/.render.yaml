@@ -3,8 +3,8 @@ services:
     name: crypto-bot
     env: python
     plan: free
-    buildCommand: "./build.sh"
-    startCommand: "python bot.py"
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
         sync: false
