@@ -1,12 +1,9 @@
-from trade_assistant import trade_assistant
-from whale_tracker import whale_tracker
-from arbitrage_analyzer import arbitrage_analyzer
 import os
 import requests
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -24,7 +21,545 @@ if not BOT_TOKEN:
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Глобальні змінні для налаштувань
+# ==================== TRADE ASSISTANT CLASS ====================
+class TradeAssistant:
+    def __init__(self):
+        self.base_url = "https://api.binance.com/api/v3"
+        
+    def get_market_data(self, symbol: str):
+        try:
+            klines = self.get_klines(symbol, "1h", 100)
+            ticker = self.get_ticker_24hr(symbol)
+            depth = self.get_depth(symbol)
+            
+            if not all([klines, ticker, depth]):
+                return None
+                
+            return {
+                'klines': klines,
+                'ticker': ticker,
+                'depth': depth,
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error getting market data for {symbol}: {e}")
+            return None
+    
+    def generate_trade_signal(self, symbol: str):
+        market_data = self.get_market_data(symbol)
+        if not market_data:
+            return {'error': 'Could not fetch market data'}
+        
+        trend_analysis = self.analyze_trend(market_data['klines'])
+        volume_analysis = self.analyze_volume(market_data['klines'])
+        momentum_analysis = self.analyze_momentum(market_data['klines'])
+        liquidity_analysis = self.analyze_liquidity(market_data['depth'])
+        
+        recommendation = self.generate_recommendation(
+            trend_analysis, volume_analysis, momentum_analysis, liquidity_analysis
+        )
+        
+        return {
+            'symbol': symbol,
+            'recommendation': recommendation,
+            'confidence': self.calculate_confidence(trend_analysis, volume_analysis, momentum_analysis),
+            'entry_points': self.calculate_entry_points(market_data['klines']),
+            'exit_points': self.calculate_exit_points(market_data['klines']),
+            'risk_level': self.calculate_risk_level(market_data),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def analyze_trend(self, klines):
+        closes = [float(k[4]) for k in klines]
+        price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
+        
+        return {
+            'direction': 'up' if price_change > 0 else 'down',
+            'strength': abs(price_change),
+            'trend_type': self.determine_trend_type(closes)
+        }
+    
+    def analyze_volume(self, klines):
+        volumes = [float(k[5]) for k in klines]
+        current_volume = volumes[-1] if volumes else 0
+        avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else current_volume
+        
+        return {
+            'current_volume': current_volume,
+            'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 1,
+            'volume_trend': 'increasing' if current_volume > avg_volume else 'decreasing'
+        }
+    
+    def analyze_momentum(self, klines):
+        closes = [float(k[4]) for k in klines]
+        rsi = self.calculate_rsi(closes)
+        
+        return {
+            'rsi': rsi,
+            'momentum': 'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral',
+            'price_acceleration': self.calculate_acceleration(closes)
+        }
+    
+    def analyze_liquidity(self, depth):
+        bids = depth.get('bids', [])[:5]
+        asks = depth.get('asks', [])[:5]
+        
+        bid_volume = sum(float(bid[1]) for bid in bids) if bids else 0
+        ask_volume = sum(float(ask[1]) for ask in asks) if asks else 0
+        
+        return {
+            'bid_liquidity': bid_volume,
+            'ask_liquidity': ask_volume,
+            'spread_percentage': self.calculate_spread_percentage(bids, asks),
+            'order_book_imbalance': self.calculate_imbalance(bids, asks)
+        }
+    
+    def generate_recommendation(self, trend, volume, momentum, liquidity):
+        if momentum['rsi'] > 70 and trend['strength'] > 10:
+            return "STRONG_SELL"
+        elif momentum['rsi'] < 30 and trend['strength'] > 10:
+            return "STRONG_BUY"
+        elif volume['volume_ratio'] > 2 and trend['direction'] == 'up':
+            return "BUY"
+        elif volume['volume_ratio'] > 2 and trend['direction'] == 'down':
+            return "SELL"
+        else:
+            return "HOLD"
+    
+    def calculate_confidence(self, trend, volume, momentum):
+        confidence = 50
+        
+        if trend['strength'] > 20:
+            confidence += 20
+        elif trend['strength'] > 10:
+            confidence += 10
+            
+        if volume['volume_ratio'] > 2:
+            confidence += 15
+            
+        if momentum['rsi'] > 70 or momentum['rsi'] < 30:
+            confidence += 15
+            
+        return min(95, max(5, confidence))
+    
+    def calculate_entry_points(self, klines):
+        closes = [float(k[4]) for k in klines]
+        current_price = closes[-1] if closes else 0
+        
+        return [
+            current_price * 0.98,
+            current_price * 0.95, 
+            current_price * 0.92
+        ]
+    
+    def calculate_exit_points(self, klines):
+        closes = [float(k[4]) for k in klines]
+        current_price = closes[-1] if closes else 0
+        
+        return [
+            current_price * 1.05,
+            current_price * 1.08,
+            current_price * 1.12
+        ]
+    
+    def calculate_risk_level(self, market_data):
+        volatility = self.calculate_volatility([float(k[4]) for k in market_data['klines']])
+        
+        if volatility > 10:
+            return "HIGH"
+        elif volatility > 5:
+            return "MEDIUM"
+        else:
+            return "LOW"
+    
+    # Допоміжні функції
+    def get_klines(self, symbol: str, interval: str, limit: int):
+        try:
+            url = f"{self.base_url}/klines"
+            params = {'symbol': symbol, 'interval': interval, 'limit': limit}
+            response = requests.get(url, params=params, timeout=10)
+            return response.json()
+        except:
+            return None
+    
+    def get_ticker_24hr(self, symbol: str):
+        try:
+            url = f"{self.base_url}/ticker/24hr?symbol={symbol}"
+            response = requests.get(url, timeout=10)
+            return response.json()
+        except:
+            return None
+    
+    def get_depth(self, symbol: str):
+        try:
+            url = f"{self.base_url}/depth?symbol={symbol}&limit=20"
+            response = requests.get(url, timeout=10)
+            return response.json()
+        except:
+            return None
+    
+    def calculate_rsi(self, prices, period: int = 14):
+        if len(prices) < period + 1:
+            return 50
+            
+        deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+        gains = [d if d > 0 else 0 for d in deltas]
+        losses = [-d if d < 0 else 0 for d in deltas]
+        
+        avg_gain = sum(gains[:period]) / period
+        avg_loss = sum(losses[:period]) / period
+        
+        if avg_loss == 0:
+            return 100
+            
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+    
+    def calculate_volatility(self, prices):
+        if len(prices) < 2:
+            return 0
+            
+        returns = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
+        return sum(abs(r) for r in returns) / len(returns) * 100
+    
+    def determine_trend_type(self, prices):
+        if len(prices) < 10:
+            return "short_term"
+            
+        short_ma = sum(prices[-5:]) / 5
+        long_ma = sum(prices[-20:]) / 20
+        
+        if short_ma > long_ma * 1.05:
+            return "strong_uptrend"
+        elif short_ma > long_ma:
+            return "weak_uptrend"
+        elif short_ma < long_ma * 0.95:
+            return "strong_downtrend"
+        else:
+            return "weak_downtrend"
+    
+    def calculate_acceleration(self, prices):
+        if len(prices) < 3:
+            return 0
+            
+        recent_change = (prices[-1] - prices[-2]) / prices[-2] if prices[-2] != 0 else 0
+        previous_change = (prices[-2] - prices[-3]) / prices[-3] if prices[-3] != 0 else 0
+        
+        return (recent_change - previous_change) * 100
+    
+    def calculate_spread_percentage(self, bids, asks):
+        if not bids or not asks:
+            return 0
+            
+        best_bid = float(bids[0][0])
+        best_ask = float(asks[0][0])
+        
+        return ((best_ask - best_bid) / best_bid) * 100 if best_bid != 0 else 0
+    
+    def calculate_imbalance(self, bids, asks):
+        if not bids or not asks:
+            return 1
+            
+        bid_volume = sum(float(bid[1]) for bid in bids[:3])
+        ask_volume = sum(float(ask[1]) for ask in asks[:3])
+        
+        return bid_volume / ask_volume if ask_volume > 0 else float('inf')
+
+# ==================== ARBITRAGE ANALYZER CLASS ====================
+class ArbitrageAnalyzer:
+    def __init__(self):
+        self.base_url = "https://api.binance.com/api/v3"
+        
+    def get_ticker_prices(self):
+        try:
+            url = f"{self.base_url}/ticker/price"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            prices = {}
+            for item in data:
+                prices[item['symbol']] = float(item['price'])
+                
+            return prices
+        except Exception as e:
+            logger.error(f"Error getting ticker prices: {e}")
+            return {}
+    
+    def find_triangular_arbitrage_pairs(self, prices):
+        usdt_pairs = {k: v for k, v in prices.items() if k.endswith('USDT')}
+        
+        currencies = set()
+        for pair in usdt_pairs.keys():
+            currency = pair.replace('USDT', '')
+            currencies.add(currency)
+        
+        currency_prices = {}
+        for currency in currencies:
+            for target_currency in currencies:
+                if currency != target_currency:
+                    cross_pair = f"{currency}{target_currency}"
+                    if cross_pair in prices:
+                        if currency not in currency_prices:
+                            currency_prices[currency] = {}
+                        currency_prices[currency][target_currency] = prices[cross_pair]
+        
+        arbitrage_opportunities = []
+        
+        for currency_a in currencies:
+            for currency_b in currencies:
+                if currency_a != currency_b:
+                    if (currency_a in currency_prices and 
+                        currency_b in currency_prices[currency_a] and
+                        f"{currency_b}USDT" in usdt_pairs and
+                        f"{currency_a}USDT" in usdt_pairs):
+                        
+                        rate_ab = currency_prices[currency_a].get(currency_b, 0)
+                        if rate_ab == 0:
+                            continue
+
+                        rate_b_usdt = usdt_pairs.get(f"{currency_b}USDT", 0)
+                        if rate_b_usdt == 0:
+                            continue
+
+                        usdt_a_price = usdt_pairs.get(f"{currency_a}USDT", 0)
+                        if usdt_a_price == 0:
+                            continue
+
+                        rate_usdt_a = 1 / usdt_a_price
+                        
+                        final_rate = rate_ab * rate_b_usdt * rate_usdt_a
+                        profitability = (final_rate - 1) * 100
+                        
+                        if abs(profitability) > 0.1:
+                            opportunity = {
+                                'path': f"{currency_a} -> {currency_b} -> USDT -> {currency_a}",
+                                'profitability': profitability,
+                                'rates': {
+                                    f"{currency_a}/{currency_b}": rate_ab,
+                                    f"{currency_b}/USDT": rate_b_usdt,
+                                    f"USDT/{currency_a}": rate_usdt_a
+                                },
+                                'final_rate': final_rate
+                            }
+                            arbitrage_opportunities.append(opportunity)
+        
+        arbitrage_opportunities.sort(key=lambda x: abs(x['profitability']), reverse=True)
+        return arbitrage_opportunities
+    
+    def calculate_depth_arbitrage(self, symbol: str):
+        try:
+            url = f"{self.base_url}/depth?symbol={symbol}&limit=20"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            best_bid = float(data['bids'][0][0]) if data['bids'] else 0
+            best_ask = float(data['asks'][0][0]) if data['asks'] else 0
+            
+            spread = best_ask - best_bid
+            spread_percentage = (spread / best_bid) * 100 if best_bid > 0 else 0
+            
+            bid_volume = sum(float(bid[1]) for bid in data['bids'][:5])
+            ask_volume = sum(float(ask[1]) for ask in data['asks'][:5])
+            
+            return {
+                'symbol': symbol,
+                'best_bid': best_bid,
+                'best_ask': best_ask,
+                'spread': spread,
+                'spread_percentage': spread_percentage,
+                'bid_volume': bid_volume,
+                'ask_volume': ask_volume,
+                'imbalance': bid_volume / ask_volume if ask_volume > 0 else 0
+            }
+        except Exception as e:
+            logger.error(f"Error calculating depth arbitrage for {symbol}: {e}")
+            return {}
+    
+    def format_opportunity_message(self, opportunity: dict) -> str:
+        profit = opportunity['profitability']
+        profit_emoji = "🟢" if profit > 0 else "🔴"
+        
+        message = f"{profit_emoji} <b>Арбітражна можливість</b>\n"
+        message += f"Шлях: {opportunity['path']}\n"
+        message += f"Прибутковість: <b>{profit:+.4f}%</b>\n"
+        message += f"Фінальний курс: {opportunity['final_rate']:.8f}\n"
+        
+        for pair, rate in opportunity['rates'].items():
+            message += f"{pair}: {rate:.8f}\n"
+            
+        return message
+
+# ==================== WHALE TRACKER CLASS ====================
+class WhaleTracker:
+    def __init__(self):
+        self.base_url = "https://api.binance.com/api/v3"
+        self.whale_threshold = 500000
+        
+    def get_large_trades(self, symbol: str = "BTCUSDT", limit: int = 100):
+        try:
+            url = f"{self.base_url}/trades"
+            params = {'symbol': symbol, 'limit': limit}
+            response = requests.get(url, params=params, timeout=10)
+            trades = response.json()
+            
+            large_trades = []
+            for trade in trades:
+                trade_value = float(trade['price']) * float(trade['qty'])
+                if trade_value >= self.whale_threshold:
+                    large_trades.append({
+                        'symbol': symbol,
+                        'price': float(trade['price']),
+                        'quantity': float(trade['qty']),
+                        'value': trade_value,
+                        'time': datetime.fromtimestamp(trade['time']/1000),
+                        'is_buyer': trade['isBuyerMaker']
+                    })
+            
+            return large_trades
+        except Exception as e:
+            logger.error(f"Error getting large trades: {e}")
+            return []
+    
+    def detect_whale_accumulation(self, symbol: str = "BTCUSDT"):
+        try:
+            large_trades = self.get_large_trades(symbol, 500)
+            
+            if not large_trades:
+                return None
+            
+            buy_volume = sum(trade['value'] for trade in large_trades if trade['is_buyer'])
+            sell_volume = sum(trade['value'] for trade in large_trades if not trade['is_buyer'])
+            
+            if buy_volume > sell_volume * 3:
+                return {
+                    'symbol': symbol,
+                    'type': 'ACCUMULATION',
+                    'buy_volume': buy_volume,
+                    'sell_volume': sell_volume,
+                    'ratio': buy_volume / sell_volume,
+                    'timestamp': datetime.now()
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error detecting whale accumulation: {e}")
+            return None
+    
+    def detect_pump_preparation(self, symbol: str):
+        try:
+            url = f"{self.base_url}/depth?symbol={symbol}&limit=50"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            ask_orders = data['asks'][:20]
+            large_ask_orders = []
+            
+            for price, quantity in ask_orders:
+                order_value = float(price) * float(quantity)
+                if order_value > self.whale_threshold:
+                    large_ask_orders.append({
+                        'price': float(price),
+                        'quantity': float(quantity),
+                        'value': order_value
+                    })
+            
+            if large_ask_orders:
+                total_value = sum(order['value'] for order in large_ask_orders)
+                return {
+                    'symbol': symbol,
+                    'type': 'PUMP_PREPARATION',
+                    'large_orders_count': len(large_ask_orders),
+                    'total_value': total_value,
+                    'orders': large_ask_orders[:5]
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error detecting pump preparation: {e}")
+            return None
+    
+    def detect_dump_warning(self, symbol: str):
+        try:
+            large_trades = self.get_large_trades(symbol, 200)
+            
+            if not large_trades:
+                return None
+            
+            recent_sells = [t for t in large_trades if not t['is_buyer']]
+            recent_buys = [t for t in large_trades if t['is_buyer']]
+            
+            sell_volume = sum(t['value'] for t in recent_sells)
+            buy_volume = sum(t['value'] for t in recent_buys)
+            
+            if sell_volume > buy_volume * 2 and len(recent_sells) > 5:
+                return {
+                    'symbol': symbol,
+                    'type': 'DUMP_WARNING',
+                    'sell_volume': sell_volume,
+                    'buy_volume': buy_volume,
+                    'sell_count': len(recent_sells),
+                    'buy_count': len(recent_buys),
+                    'ratio': sell_volume / buy_volume if buy_volume > 0 else float('inf')
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error detecting dump warning: {e}")
+            return None
+    
+    def monitor_top_cryptos(self):
+        top_symbols = [
+            'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT'
+        ]
+        
+        alerts = []
+        
+        for symbol in top_symbols:
+            try:
+                accumulation = self.detect_whale_accumulation(symbol)
+                pump_prep = self.detect_pump_preparation(symbol)
+                dump_warning = self.detect_dump_warning(symbol)
+                
+                if accumulation:
+                    alerts.append(accumulation)
+                if pump_prep:
+                    alerts.append(pump_prep)
+                if dump_warning:
+                    alerts.append(dump_warning)
+                    
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error monitoring {symbol}: {e}")
+                continue
+        
+        return alerts
+    
+    def format_whale_alert(self, alert: dict) -> str:
+        if alert['type'] == 'ACCUMULATION':
+            return (f"🐋 <b>НАКОПИЧЕННЯ КИТА</b> - {alert['symbol']}\n"
+                   f"📈 Обсяг купівлі: ${alert['buy_volume']:,.0f}\n"
+                   f"📉 Обсяг продажу: ${alert['sell_volume']:,.0f}\n"
+                   f"⚖️ Співвідношення: {alert['ratio']:.2f}x\n"
+                   f"🚀 <b>Можливий майбутній PUMP</b>")
+        
+        elif alert['type'] == 'PUMP_PREPARATION':
+            return (f"🔧 <b>ПІДГОТОВКА ДО PUMP</b> - {alert['symbol']}\n"
+                   f"📊 Великих ордерів: {alert['large_orders_count']}\n"
+                   f"💰 Загальна вартість: ${alert['total_value']:,.0f}\n"
+                   f"⚠️ <b>Очікуйте руху ціни</b>")
+        
+        elif alert['type'] == 'DUMP_WARNING':
+            return (f"⚠️ <b>ПОПЕРЕДЖЕННЯ ПРО DUMP</b> - {alert['symbol']}\n"
+                   f"📉 Продажі китів: ${alert['sell_volume']:,.0f}\n"
+                   f"📈 Купівлі: ${alert['buy_volume']:,.0f}\n"
+                   f"🔻 Співвідношення: {alert['ratio']:.2f}x\n"
+                   f"🎯 <b>Можливий майбутній DUMP</b>")
+        
+        return ""
+
+# ==================== GLOBAL VARIABLES ====================
 USER_SETTINGS = {
     'min_volume': 5000000,
     'top_symbols': 30,
@@ -37,19 +572,16 @@ USER_SETTINGS = {
     'rsi_oversold': 30
 }
 
-# Словник для зберігання чатів, які підписані на сповіщення
 ALERT_SUBSCRIPTIONS = {}
+trade_assistant = TradeAssistant()
+arbitrage_analyzer = ArbitrageAnalyzer()
+whale_tracker = WhaleTracker()
 
-# Допоміжні функції
+# ==================== HELPER FUNCTIONS ====================
 def get_klines(symbol, interval="1h", limit=200):
-    """Отримання історичних даних з Binance"""
     try:
         url = "https://api.binance.com/api/v3/klines"
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
-        }
+        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
         data = requests.get(url, params=params, timeout=10).json()
         
         if not data:
@@ -69,7 +601,6 @@ def get_klines(symbol, interval="1h", limit=200):
         return None
 
 def find_support_resistance(prices, window=20, delta=0.005):
-    """Знаходження рівнів підтримки та опору"""
     n = len(prices)
     rolling_high = [0] * n
     rolling_low = [0] * n
@@ -88,7 +619,6 @@ def find_support_resistance(prices, window=20, delta=0.005):
     return sorted(set(levels))
 
 def calculate_rsi(prices, period=14):
-    """Розрахунок RSI"""
     if len(prices) < period + 1:
         return 50
     
@@ -109,7 +639,6 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 def calculate_volume_spike(volumes, lookback=20):
-    """Перевірка сплеску обсягів"""
     if len(volumes) < lookback:
         return False
     recent_volume = volumes[-1]
@@ -117,13 +646,11 @@ def calculate_volume_spike(volumes, lookback=20):
     return recent_volume > USER_SETTINGS['volume_spike_multiplier'] * avg_volume
 
 def calculate_technical_indicators(closes, volumes):
-    """Розрахунок технічних індикаторів"""
     rsi = calculate_rsi(closes)
     vol_spike = calculate_volume_spike(volumes)
     return rsi, vol_spike
 
 def detect_pump_dump(closes, volumes, pump_threshold=15, dump_threshold=-15):
-    """Виявлення пампу або дампу"""
     if len(closes) < 24:
         return None, 0
     
@@ -139,33 +666,26 @@ def detect_pump_dump(closes, volumes, pump_threshold=15, dump_threshold=-15):
     return event_type, price_change_24h
 
 def detect_pump_activity(symbol, closes, volumes, settings):
-    """Розширений детектор памп-активності"""
     if len(closes) < 24:
         return None, 0, {}
     
-    # Основні метрики
     price_change_24h = (closes[-1] - closes[-24]) / closes[-24] * 100
     price_change_1h = (closes[-1] - closes[-4]) / closes[-4] * 100 if len(closes) >= 4 else 0
     
-    # Аналіз обсягів
     volume_metrics = analyze_volume(volumes, settings)
-    
-    # Додаткові показники
     volatility = calculate_volatility(closes[-24:])
     green_candles = count_green_candles(closes[-24:])
     
-    # Визначення пампу
     is_pump = (
         price_change_24h > settings['pump_threshold'] and
         volume_metrics['volume_spike'] and
-        price_change_1h > 5 and  # Різкий зліт за останню годину
-        green_candles > 15  # Більшість свічок зростаючі
+        price_change_1h > 5 and
+        green_candles > 15
     )
     
     if not is_pump:
         return None, price_change_24h, volume_metrics
     
-    # Рівень ризику (1-10)
     risk_level = calculate_pump_risk(closes, volumes, price_change_24h)
     
     pump_data = {
@@ -179,7 +699,6 @@ def detect_pump_activity(symbol, closes, volumes, settings):
     return "PUMP", price_change_24h, pump_data
 
 def analyze_volume(volumes, settings):
-    """Детальний аналіз обсягів торгів"""
     if len(volumes) < 24:
         return {'volume_spike': False, 'avg_volume': 0}
     
@@ -199,7 +718,6 @@ def analyze_volume(volumes, settings):
     }
 
 def calculate_volatility(prices):
-    """Розрахунок волатильності"""
     if len(prices) < 2:
         return 0
     
@@ -207,7 +725,6 @@ def calculate_volatility(prices):
     return sum(abs(r) for r in returns) / len(returns) * 100
 
 def count_green_candles(prices):
-    """Підрахунок зростаючих свічок"""
     if len(prices) < 2:
         return 0
     
@@ -219,10 +736,8 @@ def count_green_candles(prices):
     return green_count
 
 def calculate_pump_risk(closes, volumes, price_change):
-    """Розрахунок рівня ризику пампу"""
-    risk = 5  # Базовий рівень
+    risk = 5
     
-    # Корекція на основі величини зростання
     if price_change > 50:
         risk += 3
     elif price_change > 30:
@@ -230,7 +745,6 @@ def calculate_pump_risk(closes, volumes, price_change):
     elif price_change > 15:
         risk += 1
     
-    # Корекція на основі обсягів
     if len(volumes) > 0:
         volume_ratio = volumes[-1] / (sum(volumes[-10:]) / 10) if sum(volumes[-10:]) > 0 else 1
         if volume_ratio > 5:
@@ -238,18 +752,15 @@ def calculate_pump_risk(closes, volumes, price_change):
         elif volume_ratio > 3:
             risk += 1
     
-    # Обмеження від 1 до 10
     return max(1, min(10, risk))
 
 def detect_volume_anomaly(symbol, volumes, settings):
-    """Виявлення аномальних обсягів торгів"""
     if len(volumes) < 24:
         return False, {}
     
     current_volume = volumes[-1]
     avg_volume_24h = sum(volumes[-24:]) / 24
     
-    # Перевірка на аномальний обсяг
     is_anomaly = current_volume > avg_volume_24h * settings['volume_spike_multiplier'] * 1.5
     
     if not is_anomaly:
@@ -265,7 +776,6 @@ def detect_volume_anomaly(symbol, volumes, settings):
     return True, anomaly_data
 
 def send_alerts_to_subscribers():
-    """Надсилання сповіщень всім підписникам"""
     if not ALERT_SUBSCRIPTIONS:
         return
     
@@ -298,7 +808,6 @@ def send_alerts_to_subscribers():
                 closes = [float(c) for c in df["c"]]
                 volumes = [float(v) for v in df["v"]]
 
-                # Перевірка на памп/дамп
                 event_type, price_change = detect_pump_dump(closes, volumes)
                 
                 if event_type:
@@ -315,7 +824,7 @@ def send_alerts_to_subscribers():
                 continue
 
         if alerts:
-            alert_text = "\n\n".join(alerts[:3])  # Обмежуємо кількість сповіщень
+            alert_text = "\n\n".join(alerts[:3])
             
             for chat_id in ALERT_SUBSCRIPTIONS.keys():
                 try:
@@ -326,52 +835,56 @@ def send_alerts_to_subscribers():
     except Exception as e:
         logger.error(f"Error in alert system: {e}")
 
-# Планувальник для автоматичних перевірок
+# ==================== SCHEDULER ====================
 scheduler = BackgroundScheduler()
 scheduler.add_job(send_alerts_to_subscribers, 'interval', minutes=30)
 scheduler.start()
 
-# Flask маршрути
+# ==================== FLASK ROUTES ====================
 @app.route('/')
 def index():
     return "Crypto Bot is running!"
 
-# Команди бота
+# ==================== BOT COMMANDS ====================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    """Привітальне повідомлення"""
     help_text = """
-🤖 Smart Crypto Bot - Аналіз пампів та дампів
+🤖 Smart Crypto Bot - Розширений аналіз ринку
 
-Доступні команди:
+🚀 <b>НОВІ КОМАНДИ:</b>
+/trade_signal <token> - Генерація торгових сигналів
+/whale_alert - Моніторинг китової активності
+/arbitrage - Пошук арбітражних можливостей
+/market_depth <pair> - Аналіз глибини ринку
+
+📊 <b>Основні команди:</b>
 /smart_auto - Автоматичний пошук сигналів
-/pump_scan - Сканування на памп активність
+/pump_scan - Сканування на памп активність  
 /volume_anomaly - Пошук аномальних обсягів
 /advanced_analysis <token> - Розширений аналіз токена
-/settings - Налаштування параметрів
-/check_token <token> - Перевірити конкретний токен
+
+⚙️ <b>Інші команди:</b>
+/settings - Налаштування
+/check_token <token> - Перевірка токена
 /stats - Статистика ринку
 /alerts_on - Увімкнути сповіщення
 /alerts_off - Вимкнути сповіщення
 """
-    bot.reply_to(message, help_text)
+    bot.reply_to(message, help_text, parse_mode="HTML")
 
 @bot.message_handler(commands=['alerts_on'])
 def enable_alerts(message):
-    """Увімкнути сповіщення"""
     ALERT_SUBSCRIPTIONS[message.chat.id] = True
     bot.reply_to(message, "🔔 Сповіщення увімкнено! Ви отримуватимете автоматичні сповіщення про памп/дамп.")
 
 @bot.message_handler(commands=['alerts_off'])
 def disable_alerts(message):
-    """Вимкнути сповіщення"""
     if message.chat.id in ALERT_SUBSCRIPTIONS:
         del ALERT_SUBSCRIPTIONS[message.chat.id]
     bot.reply_to(message, "🔕 Сповіщення вимкнено.")
 
 @bot.message_handler(commands=['pump_scan'])
 def pump_scan_handler(message):
-    """Сканування на памп активність"""
     try:
         msg = bot.send_message(message.chat.id, "🔍 Сканую на памп активність...")
         
@@ -403,7 +916,6 @@ def pump_scan_handler(message):
                 closes = [float(c) for c in df["c"]]
                 volumes = [float(v) for v in df["v"]]
                 
-                # Детектуємо памп активність
                 pump_type, price_change, pump_data = detect_pump_activity(
                     symbol, closes, volumes, USER_SETTINGS
                 )
@@ -442,7 +954,6 @@ def pump_scan_handler(message):
 
 @bot.message_handler(commands=['volume_anomaly'])
 def volume_anomaly_handler(message):
-    """Пошук аномальних обсягів торгів"""
     try:
         msg = bot.send_message(message.chat.id, "🔍 Шукаю аномальні обсяги...")
         
@@ -473,7 +984,6 @@ def volume_anomaly_handler(message):
                 
                 volumes = [float(v) for v in df["v"]]
                 
-                # Шукаємо аномалії обсягу
                 is_anomaly, anomaly_data = detect_volume_anomaly(symbol, volumes, USER_SETTINGS)
                 
                 if is_anomaly:
@@ -501,9 +1011,7 @@ def volume_anomaly_handler(message):
 
 @bot.message_handler(commands=['advanced_analysis'])
 def advanced_analysis_handler(message):
-    """Розширений аналіз обраного токена"""
     try:
-        # Перевіряємо, чи вказано токен
         parts = message.text.split()
         if len(parts) < 2:
             bot.reply_to(message, "ℹ️ Використання: /advanced_analysis BTC")
@@ -512,7 +1020,6 @@ def advanced_analysis_handler(message):
         symbol = parts[1].upper() + "USDT"
         msg = bot.send_message(message.chat.id, f"🔍 Аналізую {symbol}...")
         
-        # Отримуємо дані
         df = get_klines(symbol, interval="1h", limit=200)
         if not df or len(df.get("c", [])) < 50:
             bot.edit_message_text("❌ Не вдалося отримати дані для цього токена", message.chat.id, msg.message_id)
@@ -522,12 +1029,10 @@ def advanced_analysis_handler(message):
         volumes = [float(v) for v in df["v"]]
         last_price = closes[-1]
         
-        # Виконуємо різні види аналізу
         pump_type, price_change, pump_data = detect_pump_activity(symbol, closes, volumes, USER_SETTINGS)
         is_volume_anomaly, volume_data = detect_volume_anomaly(symbol, volumes, USER_SETTINGS)
         volume_metrics = analyze_volume(volumes, USER_SETTINGS)
         
-        # Формуємо звіт
         report_text = f"<b>📊 Розширений аналіз {symbol}</b>\n\n"
         report_text += f"💰 Поточна ціна: ${last_price:.4f}\n"
         report_text += f"📈 Зміна за 24г: {price_change:+.1f}%\n"
@@ -542,7 +1047,6 @@ def advanced_analysis_handler(message):
         if is_volume_anomaly:
             report_text += "🔴 Виявлено аномалію обсягу!\n"
         
-        # Додаємо рекомендацію
         if pump_type == "PUMP" and pump_data.get('risk_level', 5) > 7:
             report_text += "\n🔻 Рекомендація: Високий ризик! Уникайте входу.\n"
         elif pump_type == "PUMP":
@@ -558,10 +1062,8 @@ def advanced_analysis_handler(message):
         logger.error(f"Error in advanced_analysis: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
-# Додаємо відсутні команди
 @bot.message_handler(commands=['smart_auto'])
 def smart_auto_handler(message):
-    """Основна функція пошуку сигналів"""
     try:
         msg = bot.send_message(message.chat.id, "🔍 Аналізую ринок...")
         
@@ -592,10 +1094,7 @@ def smart_auto_handler(message):
                 volumes = [float(v) for v in df["v"]]
                 last_price = closes[-1]
 
-                # Технічні індикатори
                 rsi, vol_spike = calculate_technical_indicators(closes, volumes)
-                
-                # Рівні підтримки/опору
                 sr_levels = find_support_resistance(
                     closes, 
                     window=USER_SETTINGS['window_size'], 
@@ -624,7 +1123,6 @@ def smart_auto_handler(message):
                         )
                         break
 
-                # Перевірка на памп/дамп
                 event_type, price_change = detect_pump_dump(closes, volumes)
                 
                 if event_type:
@@ -654,7 +1152,6 @@ def smart_auto_handler(message):
 
 @bot.message_handler(commands=['check_token'])
 def check_token_handler(message):
-    """Перевірка конкретного токена"""
     try:
         symbol = message.text.split()[1].upper() + "USDT"
         df = get_klines(symbol, interval="1h", limit=200)
@@ -667,7 +1164,6 @@ def check_token_handler(message):
         volumes = [float(v) for v in df["v"]]
         last_price = closes[-1]
         
-        # Аналіз
         rsi, vol_spike = calculate_technical_indicators(closes, volumes)
         sr_levels = find_support_resistance(closes)
         event_type, price_change = detect_pump_dump(closes, volumes)
@@ -682,11 +1178,10 @@ RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепр
 
 <b>Key Levels:</b>
 """
-        for level in sr_levels[-5:]:  # Останні 5 рівнів
+        for level in sr_levels[-5:]:
             distance_pct = (last_price - level) / level * 100
             analysis_text += f"{level:.4f} ({distance_pct:+.1f}%)\n"
 
-        # Додаємо рекомендацію
         if event_type == "PUMP":
             analysis_text += "\n🔴 Рекомендація: Шорт (можливий корекція після пампу)"
         elif event_type == "DUMP":
@@ -702,15 +1197,12 @@ RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепр
 
 @bot.message_handler(commands=['stats'])
 def market_stats(message):
-    """Статистика ринку"""
     try:
         url = "https://api.binance.com/api/v3/ticker/24hr"
         data = requests.get(url, timeout=10).json()
         
-        # Фільтруємо USDT пари з високим обсягом
         usdt_pairs = [d for d in data if d['symbol'].endswith('USDT') and float(d['quoteVolume']) > 1000000]
         
-        # Топ гейнери/лосери
         gainers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']), reverse=True)[:5]
         losers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']))[:5]
         
@@ -731,7 +1223,6 @@ def market_stats(message):
 
 @bot.message_handler(commands=['settings'])
 def show_settings(message):
-    """Налаштування параметрів"""
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
     keyboard.add(
         KeyboardButton("Мін. обсяг 📊"),
@@ -753,7 +1244,6 @@ DUMP поріг: {USER_SETTINGS['dump_threshold']}%
 """
     bot.send_message(message.chat.id, settings_text, reply_markup=keyboard)
 
-# Обробники для кнопок налаштувань
 @bot.message_handler(func=lambda message: message.text == "Мін. обсяг 📊")
 def set_min_volume(message):
     msg = bot.send_message(message.chat.id, "Введіть мінімальний обсяг торгів (USDT):")
@@ -825,29 +1315,23 @@ def process_dump_threshold(message):
 @bot.message_handler(func=lambda message: message.text == "Головне меню 🏠")
 def main_menu(message):
     send_welcome(message)
-    
-# Додайте цей код в кінець файлу bot.py, замінивши старий код
 
 @bot.message_handler(commands=['arbitrage'])
 def arbitrage_handler(message):
-    """Пошук арбітражних можливостей"""
     try:
         msg = bot.send_message(message.chat.id, "🔍 Шукаю арбітражні можливості...")
         
-        # Отримуємо ціни
         prices = arbitrage_analyzer.get_ticker_prices()
         if not prices:
             bot.edit_message_text("❌ Не вдалося отримати дані з Binance", message.chat.id, msg.message_id)
             return
         
-        # Шукаємо трикутні арбітражі
         opportunities = arbitrage_analyzer.find_triangular_arbitrage_pairs(prices)
         
         if not opportunities:
             bot.edit_message_text("ℹ️ Арбітражних можливостей не знайдено.", message.chat.id, msg.message_id)
             return
         
-        # Формуємо повідомлення з топ-5 можливостей
         message_text = "<b>🔎 Знайдені арбітражні можливості:</b>\n\n"
         
         for i, opportunity in enumerate(opportunities[:5]):
@@ -862,9 +1346,7 @@ def arbitrage_handler(message):
 
 @bot.message_handler(commands=['market_depth'])
 def market_depth_handler(message):
-    """Аналіз глибини ринку для арбітражу"""
     try:
-        # Перевіряємо, чи вказано токен
         parts = message.text.split()
         if len(parts) < 2:
             bot.reply_to(message, "ℹ️ Використання: /market_depth BTCUSDT")
@@ -873,14 +1355,12 @@ def market_depth_handler(message):
         symbol = parts[1].upper()
         msg = bot.send_message(message.chat.id, f"🔍 Аналізую глибину ринку для {symbol}...")
         
-        # Аналізуємо глибину ринку
         depth_analysis = arbitrage_analyzer.calculate_depth_arbitrage(symbol)
         
         if not depth_analysis:
             bot.edit_message_text("❌ Не вдалося проаналізувати глибину ринку", message.chat.id, msg.message_id)
             return
         
-        # Формуємо звіт
         report_text = f"<b>📊 Аналіз глибини ринку {symbol}</b>\n\n"
         report_text += f"Найкраща ціна купівлі: {depth_analysis['best_bid']:.8f}\n"
         report_text += f"Найкраща ціна продажу: {depth_analysis['best_ask']:.8f}\n"
@@ -890,7 +1370,6 @@ def market_depth_handler(message):
         report_text += f"Обсяг продажу (топ-5): {depth_analysis['ask_volume']:.4f}\n"
         report_text += f"Диспропорція: {depth_analysis['imbalance']:.4f}\n\n"
         
-        # Додаємо рекомендацію
         if depth_analysis['spread_percentage'] < 0.1:
             report_text += "🟢 Низький спред - хороша ліквідність\n"
         elif depth_analysis['spread_percentage'] < 0.5:
@@ -913,7 +1392,6 @@ def market_depth_handler(message):
 
 @bot.message_handler(commands=['trade_signal'])
 def trade_signal_handler(message):
-    """Генерація торгового сигналу"""
     try:
         parts = message.text.split()
         if len(parts) < 2:
@@ -923,14 +1401,12 @@ def trade_signal_handler(message):
         symbol = parts[1].upper()
         msg = bot.send_message(message.chat.id, f"📊 Аналізую {symbol} для торгових сигналів...")
         
-        # Генеруємо торговий сигнал
         signal = trade_assistant.generate_trade_signal(symbol)
         
         if 'error' in signal:
             bot.edit_message_text(f"❌ {signal['error']}", message.chat.id, msg.message_id)
             return
         
-        # Формуємо повідомлення
         response = f"🎯 <b>Торговий сигнал для {symbol}</b>\n\n"
         response += f"📈 Рекомендація: <b>{signal['recommendation']}</b>\n"
         response += f"💪 Впевненість: {signal['confidence']}%\n"
@@ -954,18 +1430,15 @@ def trade_signal_handler(message):
 
 @bot.message_handler(commands=['whale_alert'])
 def whale_alert_handler(message):
-    """Моніторинг китової активності"""
     try:
         msg = bot.send_message(message.chat.id, "🐋 Сканую активність китів...")
         
-        # Моніторимо топ криптовалют
         alerts = whale_tracker.monitor_top_cryptos()
         
         if not alerts:
             bot.edit_message_text("ℹ️ Китової активності не виявлено", message.chat.id, msg.message_id)
             return
         
-        # Формуємо повідомлення з топ-5 сповіщень
         message_text = "<b>🚨 АКТИВНІСТЬ КИТІВ:</b>\n\n"
         
         for i, alert in enumerate(alerts[:5]):
@@ -979,10 +1452,8 @@ def whale_alert_handler(message):
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
-    # Видаляємо вебхук якщо він був встановлений раніше
     bot.remove_webhook()
     
-    # Запускаємо бота в режимі polling в окремому потоці
     def run_bot():
         logger.info("Запуск бота в режимі polling...")
         while True:
@@ -993,17 +1464,14 @@ if __name__ == "__main__":
                 logger.info("Перезапуск бота через 10 секунд...")
                 time.sleep(10)
     
-    # Запускаємо бота в окремому потоці
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
     
-    # Запускаємо Flask сервер для Render
     port = int(os.environ.get('PORT', 5000))
     
     @app.route('/health')
     def health():
         return "OK"
     
-    # Запускаємо Flask
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
