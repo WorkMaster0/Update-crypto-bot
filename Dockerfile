@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Встановлення системних залежностей для NumPy
+# Встановлення системних залежностей
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
