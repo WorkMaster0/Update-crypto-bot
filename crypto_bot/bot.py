@@ -1,6 +1,5 @@
 import os
 import requests
-import numpy as np
 import logging
 from datetime import datetime
 import telebot
@@ -55,59 +54,60 @@ def get_klines(symbol, interval="1h", limit=200):
 
 def find_support_resistance(prices, window=20, delta=0.005):
     """Знаходження рівнів підтримки та опору"""
-    # Замінюємо pandas на чистий numpy
-    prices_series = np.array(prices)
-    rolling_high = np.zeros_like(prices_series)
-    rolling_low = np.zeros_like(prices_series)
+    n = len(prices)
+    rolling_high = [0] * n
+    rolling_low = [0] * n
     
-    for i in range(window, len(prices_series)):
-        rolling_high[i] = np.max(prices_series[i-window:i])
-        rolling_low[i] = np.min(prices_series[i-window:i])
+    # Заповнюємо rolling_high та rolling_low
+    for i in range(window, n):
+        rolling_high[i] = max(prices[i-window:i])
+        rolling_low[i] = min(prices[i-window:i])
     
     levels = []
-    for i in range(window, len(prices_series)):
-        if prices_series[i] >= rolling_high[i] * (1 - delta):
+    for i in range(window, n):
+        if prices[i] >= rolling_high[i] * (1 - delta):
             levels.append(rolling_high[i])
-        elif prices_series[i] <= rolling_low[i] * (1 + delta):
+        elif prices[i] <= rolling_low[i] * (1 + delta):
             levels.append(rolling_low[i])
     
     return sorted(set(levels))
 
-def calculate_technical_indicators(closes, volumes):
-    """Розрахунок технічних індикаторів"""
-    closes = np.array(closes)
-    volumes = np.array(volumes)
+def calculate_rsi(prices, period=14):
+    """Розрахунок RSI без numpy"""
+    if len(prices) < period + 1:
+        return 50  # Недостатньо даних
     
-    # RSI
-    if len(closes) < 15:
-        return 50, False  # Недостатньо даних для розрахунку RSI
+    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    gains = [d if d > 0 else 0 for d in deltas]
+    losses = [-d if d < 0 else 0 for d in deltas]
     
-    delta = np.diff(closes)
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
     
-    avg_gain = np.mean(gain[:14])
-    avg_loss = np.mean(loss[:14])
-    
-    for i in range(14, len(delta)):
-        avg_gain = (avg_gain * 13 + gain[i]) / 14
-        avg_loss = (avg_loss * 13 + loss[i]) / 14
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
     
     if avg_loss == 0:
-        rsi = 100
-    else:
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-    
-    # Volume spike
-    if len(volumes) >= 20:
-        vol_spike = volumes[-1] > 1.5 * np.mean(volumes[-20:])
-    else:
-        vol_spike = False
-    
+        return 100
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_volume_spike(volumes, lookback=20):
+    """Перевірка сплеску обсягів"""
+    if len(volumes) < lookback:
+        return False
+    recent_volume = volumes[-1]
+    avg_volume = sum(volumes[-lookback:]) / lookback
+    return recent_volume > 1.5 * avg_volume
+
+def calculate_technical_indicators(closes, volumes):
+    """Розрахунок технічних індикаторів"""
+    rsi = calculate_rsi(closes)
+    vol_spike = calculate_volume_spike(volumes)
     return rsi, vol_spike
 
-# Команди бота
+# Команди бота (залишаються без змін, як у вашому попередньому коді)
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     """Привітальне повідомлення"""
@@ -169,8 +169,8 @@ def smart_auto_handler(message):
                 if not df or len(df.get("c", [])) < 50:
                     continue
 
-                closes = np.array(df["c"], dtype=float)
-                volumes = np.array(df["v"], dtype=float)
+                closes = [float(c) for c in df["c"]]
+                volumes = [float(v) for v in df["v"]]
                 last_price = closes[-1]
 
                 # Технічні індикатори
@@ -248,8 +248,8 @@ def check_token_handler(message):
             bot.send_message(message.chat.id, "❌ Токен не знайдено або помилка даних")
             return
             
-        closes = np.array(df["c"], dtype=float)
-        volumes = np.array(df["v"], dtype=float)
+        closes = [float(c) for c in df["c"]]
+        volumes = [float(v) for v in df["v"]]
         last_price = closes[-1]
         
         # Аналіз
