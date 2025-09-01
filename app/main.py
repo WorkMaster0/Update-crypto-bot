@@ -1,29 +1,56 @@
-# main.py
+import os
+import traceback
 from flask import Flask, request
-from telebot import TeleBot, types
-from app.config import TELEGRAM_BOT_TOKEN
 from app.bot import bot
-from app.handlers import ai_alert_handler, ai_notify_handler
-from app.charts import plot_candles
-import io
+import app.handlers  # Імпортуємо всі обробники
+import telebot  # ⬅️ ДОДАЄМО ЦЕЙ ІМПОРТ!
 
 app = Flask(__name__)
 
-# ---------- TELEGRAM WEBHOOK ----------
-@app.route(f"/webhook/{TELEGRAM_BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    json_data = request.get_json(force=True)
-    bot.process_new_updates([types.Update.de_json(json_data)])
-    return "OK", 200
+@app.route("/")
+def home():
+    return "✅ Crypto Bot is running!"
 
-# ---------- TEST GRAPH ENDPOINT ----------
-@app.route("/chart/<symbol>")
-def get_chart(symbol):
-    buf = plot_candles(symbol.upper(), interval="1h", limit=200)
-    return app.response_class(buf.getvalue(), mimetype='image/png')
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Обробка вебхуків від Telegram"""
+    if request.method == 'POST':
+        try:
+            # Отримуємо оновлення від Telegram
+            json_data = request.get_json()
+            print(f"Received update: {json_data}")  # Додаємо лог
+            
+            update = telebot.types.Update.de_json(json_data)
+            
+            # Передаємо оновлення боту
+            bot.process_new_updates([update])
+            return 'OK'
+        except Exception as e:
+            # Детальний лог помилки
+            error_msg = f"Webhook error: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return 'ERROR', 500
+    return 'Invalid method', 400
 
-# ---------- POLLING MODE (LOKALЬНЕ ТЕСТУВАННЯ) ----------
+# Налаштовуємо вебхук при запуску
+def setup_webhook():
+    try:
+        # Отримуємо URL з Render
+        render_url = os.getenv('RENDER_EXTERNAL_URL')
+        if render_url:
+            webhook_url = f"{render_url}/webhook"
+            bot.remove_webhook()
+            bot.set_webhook(url=webhook_url)
+            print(f"✅ Webhook set to: {webhook_url}")
+        else:
+            print("⚠️  RENDER_EXTERNAL_URL not set - running in development mode")
+    except Exception as e:
+        print(f"❌ Webhook setup error: {e}")
+
 if __name__ == "__main__":
-    # Якщо локально, зручно тестувати через polling
-    print("Запуск бота в режимі polling...")
-    bot.infinity_polling()
+    # Налаштовуємо вебхук
+    setup_webhook()
+    
+    # Запускаємо Flask
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
