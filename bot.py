@@ -1,3 +1,4 @@
+from arbitrage_analyzer import arbitrage_analyzer
 import os
 import requests
 import logging
@@ -822,6 +823,89 @@ def process_dump_threshold(message):
 @bot.message_handler(func=lambda message: message.text == "Головне меню 🏠")
 def main_menu(message):
     send_welcome(message)
+    
+    @bot.message_handler(commands=['arbitrage'])
+def arbitrage_handler(message):
+    """Пошук арбітражних можливостей"""
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Шукаю арбітражні можливості...")
+        
+        # Отримуємо ціни
+        prices = arbitrage_analyzer.get_ticker_prices()
+        if not prices:
+            bot.edit_message_text("❌ Не вдалося отримати дані з Binance", message.chat.id, msg.message_id)
+            return
+        
+        # Шукаємо трикутні арбітражі
+        opportunities = arbitrage_analyzer.find_triangular_arbitrage_pairs(prices)
+        
+        if not opportunities:
+            bot.edit_message_text("ℹ️ Арбітражних можливостей не знайдено.", message.chat.id, msg.message_id)
+            return
+        
+        # Формуємо повідомлення з топ-5 можливостей
+        message_text = "<b>🔎 Знайдені арбітражні можливості:</b>\n\n"
+        
+        for i, opportunity in enumerate(opportunities[:5]):
+            message_text += f"{i+1}. {arbitrage_analyzer.format_opportunity_message(opportunity)}\n"
+            message_text += "─" * 40 + "\n"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in arbitrage: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['market_depth'])
+def market_depth_handler(message):
+    """Аналіз глибини ринку для арбітражу"""
+    try:
+        # Перевіряємо, чи вказано токен
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "ℹ️ Використання: /market_depth BTCUSDT")
+            return
+            
+        symbol = parts[1].upper()
+        msg = bot.send_message(message.chat.id, f"🔍 Аналізую глибину ринку для {symbol}...")
+        
+        # Аналізуємо глибину ринку
+        depth_analysis = arbitrage_analyzer.calculate_depth_arbitrage(symbol)
+        
+        if not depth_analysis:
+            bot.edit_message_text("❌ Не вдалося проаналізувати глибину ринку", message.chat.id, msg.message_id)
+            return
+        
+        # Формуємо звіт
+        report_text = f"<b>📊 Аналіз глибини ринку {symbol}</b>\n\n"
+        report_text += f"Найкраща ціна купівлі: {depth_analysis['best_bid']:.8f}\n"
+        report_text += f"Найкраща ціна продажу: {depth_analysis['best_ask']:.8f}\n"
+        report_text += f"Спред: {depth_analysis['spread']:.8f}\n"
+        report_text += f"Спред (%): {depth_analysis['spread_percentage']:.4f}%\n"
+        report_text += f"Обсяг купівлі (топ-5): {depth_analysis['bid_volume']:.4f}\n"
+        report_text += f"Обсяг продажу (топ-5): {depth_analysis['ask_volume']:.4f}\n"
+        report_text += f"Диспропорція: {depth_analysis['imbalance']:.4f}\n\n"
+        
+        # Додаємо рекомендацію
+        if depth_analysis['spread_percentage'] < 0.1:
+            report_text += "🟢 Низький спред - хороша ліквідність\n"
+        elif depth_analysis['spread_percentage'] < 0.5:
+            report_text += "🟡 Середній спред - помірна ліквідність\n"
+        else:
+            report_text += "🔴 Високий спред - низька ліквідність\n"
+            
+        if depth_analysis['imbalance'] > 2:
+            report_text += "📈 Сильний дисбаланс у бік купівлі\n"
+        elif depth_analysis['imbalance'] < 0.5:
+            report_text += "📉 Сильний дисбаланс у бік продажу\n"
+        else:
+            report_text += "⚖️ Збалансований ринок\n"
+        
+        bot.edit_message_text(report_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in market_depth: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
     # Видаляємо вебхук якщо він був встановлений раніше
