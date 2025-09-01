@@ -951,6 +951,32 @@ def trade_signal_handler(message):
         logger.error(f"Error in trade_signal: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+@bot.message_handler(commands=['whale_alert'])
+def whale_alert_handler(message):
+    """Моніторинг китової активності"""
+    try:
+        msg = bot.send_message(message.chat.id, "🐋 Сканую активність китів...")
+        
+        # Моніторимо топ криптовалют
+        alerts = whale_tracker.monitor_top_cryptos()
+        
+        if not alerts:
+            bot.edit_message_text("ℹ️ Китової активності не виявлено", message.chat.id, msg.message_id)
+            return
+        
+        # Формуємо повідомлення з топ-5 сповіщень
+        message_text = "<b>🚨 АКТИВНІСТЬ КИТІВ:</b>\n\n"
+        
+        for i, alert in enumerate(alerts[:5]):
+            message_text += f"{i+1}. {whale_tracker.format_whale_alert(alert)}\n"
+            message_text += "─" * 40 + "\n"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in whale_alert: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
 if __name__ == "__main__":
     # Видаляємо вебхук якщо він був встановлений раніше
     bot.remove_webhook()
