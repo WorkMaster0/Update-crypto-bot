@@ -328,17 +328,10 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(send_alerts_to_subscribers, 'interval', minutes=30)
 scheduler.start()
 
-# Flask маршрути для вебхуків
+# Flask маршрути
 @app.route('/')
 def index():
     return "Crypto Bot is running!"
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.method == 'POST':
-        update = telebot.types.Update.de_json(request.stream.read().decode('utf-8'))
-        bot.process_new_updates([update])
-        return 'ok', 200
 
 # Команди бота
 @bot.message_handler(commands=['start', 'help'])
@@ -569,8 +562,28 @@ if __name__ == "__main__":
     # Видаляємо вебхук якщо він був встановлений раніше
     bot.remove_webhook()
     
-    # Отримуємо порт з оточення
+    # Запускаємо бота в режимі polling в окремому потоці
+    def run_bot():
+        logger.info("Запуск бота в режимі polling...")
+        while True:
+            try:
+                bot.polling(none_stop=True, interval=3, timeout=20)
+            except Exception as e:
+                logger.error(f"Помилка бота: {e}")
+                logger.info("Перезапуск бота через 10 секунд...")
+                time.sleep(10)
+    
+    # Запускаємо бота в окремому потоці
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Запускаємо Flask сервер для Render
     port = int(os.environ.get('PORT', 5000))
     
+    @app.route('/health')
+    def health():
+        return "OK"
+    
     # Запускаємо Flask
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
