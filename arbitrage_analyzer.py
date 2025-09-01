@@ -65,7 +65,10 @@ class ArbitrageAnalyzer:
                         # Розраховуємо арбітражну ставку
                         rate_ab = currency_prices[currency_a][currency_b]
                         rate_b_usdt = usdt_pairs[f"{currency_b}USDT"]
-                        rate_usdt_a = 1 / usdt_pairs[f"{currency_a}USDT"]
+usdt_a_price = usdt_pairs.get(f"{currency_a}USDT", 0)
+if usdt_a_price == 0:
+    continue  # Пропускаємо пари з нульовою ціною
+rate_usdt_a = 1 / usdt_a_price
                         
                         # Загальна ставка через арбітраж
                         final_rate = rate_ab * rate_b_usdt * rate_usdt_a
