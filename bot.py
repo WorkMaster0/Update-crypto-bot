@@ -824,7 +824,9 @@ def process_dump_threshold(message):
 def main_menu(message):
     send_welcome(message)
     
-    @bot.message_handler(commands=['arbitrage'])
+# Додайте цей код в кінець файлу bot.py, замінивши старий код
+
+@bot.message_handler(commands=['arbitrage'])
 def arbitrage_handler(message):
     """Пошук арбітражних можливостей"""
     try:
