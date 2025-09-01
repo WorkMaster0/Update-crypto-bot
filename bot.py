@@ -1,3 +1,4 @@
+from trade_assistant import trade_assistant
 from whale_tracker import whale_tracker
 from arbitrage_analyzer import arbitrage_analyzer
 import os
