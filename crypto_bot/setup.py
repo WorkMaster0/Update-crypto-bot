@@ -8,7 +8,6 @@ setup(
         "pyTelegramBotAPI==4.14.1",
         "requests==2.31.0",
         "numpy==1.24.3",
-        "pandas==2.0.3",
     ],
     python_requires=">=3.8, <3.12",
 )
