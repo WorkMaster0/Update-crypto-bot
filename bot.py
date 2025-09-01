@@ -555,8 +555,273 @@ def advanced_analysis_handler(message):
         logger.error(f"Error in advanced_analysis: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
-# Інші команди (settings, smart_auto, check_token, stats) залишаються без змін
-# Додайте їх з попередньої версії коду
+# Додаємо відсутні команди
+@bot.message_handler(commands=['smart_auto'])
+def smart_auto_handler(message):
+    """Основна функція пошуку сигналів"""
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Аналізую ринок...")
+        
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=10).json()
+
+        symbols = [
+            d for d in data
+            if d["symbol"].endswith("USDT") and float(d["quoteVolume"]) > USER_SETTINGS['min_volume']
+        ]
+
+        symbols = sorted(
+            symbols,
+            key=lambda x: abs(float(x["priceChangePercent"])),
+            reverse=True
+        )
+
+        top_symbols = [s["symbol"] for s in symbols[:USER_SETTINGS['top_symbols']]]
+
+        signals = []
+        for symbol in top_symbols:
+            try:
+                df = get_klines(symbol, interval="1h", limit=200)
+                if not df or len(df.get("c", [])) < 50:
+                    continue
+
+                closes = [float(c) for c in df["c"]]
+                volumes = [float(v) for v in df["v"]]
+                last_price = closes[-1]
+
+                # Технічні індикатори
+                rsi, vol_spike = calculate_technical_indicators(closes, volumes)
+                
+                # Рівні підтримки/опору
+                sr_levels = find_support_resistance(
+                    closes, 
+                    window=USER_SETTINGS['window_size'], 
+                    delta=USER_SETTINGS['sensitivity']
+                )
+
+                signal = None
+                for lvl in sr_levels:
+                    diff = last_price - lvl
+                    diff_pct = (diff / lvl) * 100
+
+                    if last_price > lvl * 1.01 and diff_pct > 1:
+                        signal = (
+                            f"🚀 LONG breakout\n"
+                            f"Пробито опір: ${lvl:.4f}\n"
+                            f"Поточна ціна: ${last_price:.4f}\n"
+                            f"RSI: {rsi:.1f} | Volume: {'📈' if vol_spike else '📉'}"
+                        )
+                        break
+                    elif last_price < lvl * 0.99 and diff_pct < -1:
+                        signal = (
+                            f"⚡ SHORT breakout\n"
+                            f"Пробито підтримку: ${lvl:.4f}\n"
+                            f"Поточна ціна: ${last_price:.4f}\n"
+                            f"RSI: {rsi:.1f} | Volume: {'📈' if vol_spike else '📉'}"
+                        )
+                        break
+
+                # Перевірка на памп/дамп
+                event_type, price_change = detect_pump_dump(closes, volumes)
+                
+                if event_type:
+                    signal = (
+                        f"🔴 {event_type} DETECTED!\n"
+                        f"Зміна ціни: {price_change:+.1f}%\n"
+                        f"Рекомендація: {'Шорт' if event_type == 'PUMP' else 'Лонг'}\n"
+                        f"RSI: {rsi:.1f} | Volume: {'📈' if vol_spike else '📉'}"
+                    )
+
+                if signal:
+                    signals.append(f"<b>{symbol}</b>\n{signal}\n" + "-"*40)
+
+            except Exception as e:
+                logger.error(f"Error processing {symbol}: {e}")
+                continue
+
+        if not signals:
+            bot.edit_message_text("ℹ️ Жодних сигналів не знайдено.", message.chat.id, msg.message_id)
+        else:
+            text = f"<b>📊 Smart Auto Signals</b>\n\n" + "\n".join(signals[:10])
+            bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error in smart_auto: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['check_token'])
+def check_token_handler(message):
+    """Перевірка конкретного токена"""
+    try:
+        symbol = message.text.split()[1].upper() + "USDT"
+        df = get_klines(symbol, interval="1h", limit=200)
+        
+        if not df:
+            bot.send_message(message.chat.id, "❌ Токен не знайдено або помилка даних")
+            return
+            
+        closes = [float(c) for c in df["c"]]
+        volumes = [float(v) for v in df["v"]]
+        last_price = closes[-1]
+        
+        # Аналіз
+        rsi, vol_spike = calculate_technical_indicators(closes, volumes)
+        sr_levels = find_support_resistance(closes)
+        event_type, price_change = detect_pump_dump(closes, volumes)
+        
+        analysis_text = f"""
+<b>{symbol} Analysis</b>
+
+Поточна ціна: ${last_price:.4f}
+RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепроданість)' if rsi < 30 else ''}
+Обсяг: {'підвищений' if vol_spike else 'нормальний'}
+Подія: {event_type if event_type else 'немає'} ({price_change:+.1f}%)
+
+<b>Key Levels:</b>
+"""
+        for level in sr_levels[-5:]:  # Останні 5 рівнів
+            distance_pct = (last_price - level) / level * 100
+            analysis_text += f"{level:.4f} ({distance_pct:+.1f}%)\n"
+
+        # Додаємо рекомендацію
+        if event_type == "PUMP":
+            analysis_text += "\n🔴 Рекомендація: Шорт (можливий корекція після пампу)"
+        elif event_type == "DUMP":
+            analysis_text += "\n🟢 Рекомендація: Лонг (можливий відскок після дампу)"
+
+        bot.send_message(message.chat.id, analysis_text, parse_mode="HTML")
+        
+    except IndexError:
+        bot.send_message(message.chat.id, "ℹ️ Використання: /check_token BTC")
+    except Exception as e:
+        logger.error(f"Error in check_token: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['stats'])
+def market_stats(message):
+    """Статистика ринку"""
+    try:
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=10).json()
+        
+        # Фільтруємо USDT пари з високим обсягом
+        usdt_pairs = [d for d in data if d['symbol'].endswith('USDT') and float(d['quoteVolume']) > 1000000]
+        
+        # Топ гейнери/лосери
+        gainers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']), reverse=True)[:5]
+        losers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']))[:5]
+        
+        stats_text = "<b>📈 Market Statistics</b>\n\n"
+        stats_text += "<b>Top Gainers:</b>\n"
+        for i, coin in enumerate(gainers, 1):
+            stats_text += f"{i}. {coin['symbol']} +{float(coin['priceChangePercent']):.1f}%\n"
+        
+        stats_text += "\n<b>Top Losers:</b>\n"
+        for i, coin in enumerate(losers, 1):
+            stats_text += f"{i}. {coin['symbol']} {float(coin['priceChangePercent']):.1f}%\n"
+            
+        bot.send_message(message.chat.id, stats_text, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in stats: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+@bot.message_handler(commands=['settings'])
+def show_settings(message):
+    """Налаштування параметрів"""
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(
+        KeyboardButton("Мін. обсяг 📊"),
+        KeyboardButton("Кількість монет 🔢"),
+        KeyboardButton("Чутливість ⚖️"),
+        KeyboardButton("PUMP % 📈"),
+        KeyboardButton("DUMP % 📉"),
+        KeyboardButton("Головне меню 🏠")
+    )
+    
+    settings_text = f"""
+Поточні налаштування:
+
+Мінімальний обсяг: {USER_SETTINGS['min_volume']:,.0f} USDT
+Кількість монет для аналізу: {USER_SETTINGS['top_symbols']}
+Чутливість: {USER_SETTINGS['sensitivity'] * 100}%
+PUMP поріг: {USER_SETTINGS['pump_threshold']}%
+DUMP поріг: {USER_SETTINGS['dump_threshold']}%
+"""
+    bot.send_message(message.chat.id, settings_text, reply_markup=keyboard)
+
+# Обробники для кнопок налаштувань
+@bot.message_handler(func=lambda message: message.text == "Мін. обсяг 📊")
+def set_min_volume(message):
+    msg = bot.send_message(message.chat.id, "Введіть мінімальний обсяг торгів (USDT):")
+    bot.register_next_step_handler(msg, process_min_volume)
+
+def process_min_volume(message):
+    try:
+        volume = float(message.text.replace(',', '').replace(' ', ''))
+        USER_SETTINGS['min_volume'] = volume
+        bot.send_message(message.chat.id, f"Мінімальний обсяг встановлено: {volume:,.0f} USDT")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Неправильний формат. Введіть число.")
+
+@bot.message_handler(func=lambda message: message.text == "Кількість монет 🔢")
+def set_top_symbols(message):
+    msg = bot.send_message(message.chat.id, "Введіть кількість монет для аналізу:")
+    bot.register_next_step_handler(msg, process_top_symbols)
+
+def process_top_symbols(message):
+    try:
+        count = int(message.text)
+        USER_SETTINGS['top_symbols'] = count
+        bot.send_message(message.chat.id, f"Кількість монет для аналізу встановлено: {count}")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Неправильний формат. Введіть ціле число.")
+
+@bot.message_handler(func=lambda message: message.text == "Чутливість ⚖️")
+def set_sensitivity(message):
+    msg = bot.send_message(message.chat.id, "Введіть чутливість (0.1-5.0%):")
+    bot.register_next_step_handler(msg, process_sensitivity)
+
+def process_sensitivity(message):
+    try:
+        sensitivity = float(message.text)
+        if 0.1 <= sensitivity <= 5.0:
+            USER_SETTINGS['sensitivity'] = sensitivity / 100
+            bot.send_message(message.chat.id, f"Чутливість встановлено: {sensitivity}%")
+        else:
+            bot.send_message(message.chat.id, "❌ Значення повинно бути між 0.1 та 5.0")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Неправильний формат. Введіть число.")
+
+@bot.message_handler(func=lambda message: message.text == "PUMP % 📈")
+def set_pump_threshold(message):
+    msg = bot.send_message(message.chat.id, "Введіть поріг для виявлення PUMP (%):")
+    bot.register_next_step_handler(msg, process_pump_threshold)
+
+def process_pump_threshold(message):
+    try:
+        threshold = float(message.text)
+        USER_SETTINGS['pump_threshold'] = threshold
+        bot.send_message(message.chat.id, f"PUMP поріг встановлено: {threshold}%")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Неправильний формат. Введіть число.")
+
+@bot.message_handler(func=lambda message: message.text == "DUMP % 📉")
+def set_dump_threshold(message):
+    msg = bot.send_message(message.chat.id, "Введіть поріг для виявлення DUMP (%):")
+    bot.register_next_step_handler(msg, process_dump_threshold)
+
+def process_dump_threshold(message):
+    try:
+        threshold = float(message.text)
+        USER_SETTINGS['dump_threshold'] = threshold
+        bot.send_message(message.chat.id, f"DUMP поріг встановлено: {threshold}%")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Неправильний формат. Введіть число.")
+
+@bot.message_handler(func=lambda message: message.text == "Головне меню 🏠")
+def main_menu(message):
+    send_welcome(message)
 
 if __name__ == "__main__":
     # Видаляємо вебхук якщо він був встановлений раніше
