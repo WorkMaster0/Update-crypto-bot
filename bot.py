@@ -909,6 +909,47 @@ def market_depth_handler(message):
         logger.error(f"Error in market_depth: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+@bot.message_handler(commands=['trade_signal'])
+def trade_signal_handler(message):
+    """Генерація торгового сигналу"""
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "ℹ️ Використання: /trade_signal BTCUSDT")
+            return
+            
+        symbol = parts[1].upper()
+        msg = bot.send_message(message.chat.id, f"📊 Аналізую {symbol} для торгових сигналів...")
+        
+        # Генеруємо торговий сигнал
+        signal = trade_assistant.generate_trade_signal(symbol)
+        
+        if 'error' in signal:
+            bot.edit_message_text(f"❌ {signal['error']}", message.chat.id, msg.message_id)
+            return
+        
+        # Формуємо повідомлення
+        response = f"🎯 <b>Торговий сигнал для {symbol}</b>\n\n"
+        response += f"📈 Рекомендація: <b>{signal['recommendation']}</b>\n"
+        response += f"💪 Впевненість: {signal['confidence']}%\n"
+        response += f"⚠️ Рівень ризику: {signal['risk_level']}\n\n"
+        
+        response += "🎯 <b>Точки входу:</b>\n"
+        for i, point in enumerate(signal['entry_points'], 1):
+            response += f"{i}. ${point:.4f}\n"
+        
+        response += "\n🎯 <b>Точки виходу:</b>\n"
+        for i, point in enumerate(signal['exit_points'], 1):
+            response += f"{i}. ${point:.4f}\n"
+        
+        response += f"\n🕒 Оновлено: {signal['timestamp']}"
+        
+        bot.edit_message_text(response, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in trade_signal: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
 if __name__ == "__main__":
     # Видаляємо вебхук якщо він був встановлений раніше
     bot.remove_webhook()
