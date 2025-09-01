@@ -2,7 +2,9 @@ import requests
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
+
 logger = logging.getLogger(__name__)
+
 class TradeAssistant:
     def __init__(self):
         self.base_url = "https://api.binance.com/api/v3"
@@ -64,10 +66,8 @@ class TradeAssistant:
     
     def analyze_trend(self, klines: List) -> Dict:
         """Аналіз тренду"""
-        # Імплементація аналізу тренду
         closes = [float(k[4]) for k in klines]
-        # Простий аналіз тренду
-        price_change = ((closes[-1] - closes[0]) / closes[0]) * 100
+        price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
         
         return {
             'direction': 'up' if price_change > 0 else 'down',
@@ -78,8 +78,8 @@ class TradeAssistant:
     def analyze_volume(self, klines: List) -> Dict:
         """Аналіз обсягів"""
         volumes = [float(k[5]) for k in klines]
-        current_volume = volumes[-1]
-        avg_volume = sum(volumes[:-1]) / len(volumes[:-1])
+        current_volume = volumes[-1] if volumes else 0
+        avg_volume = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else current_volume
         
         return {
             'current_volume': current_volume,
@@ -100,19 +100,21 @@ class TradeAssistant:
     
     def analyze_liquidity(self, depth: Dict) -> Dict:
         """Аналіз ліквідності"""
-        bids = depth['bids'][:5]
-        asks = depth['asks'][:5]
+        bids = depth.get('bids', [])[:5]
+        asks = depth.get('asks', [])[:5]
+        
+        bid_volume = sum(float(bid[1]) for bid in bids) if bids else 0
+        ask_volume = sum(float(ask[1]) for ask in asks) if asks else 0
         
         return {
-            'bid_liquidity': sum(float(bid[1]) for bid in bids),
-            'ask_liquidity': sum(float(ask[1]) for ask in asks),
+            'bid_liquidity': bid_volume,
+            'ask_liquidity': ask_volume,
             'spread_percentage': self.calculate_spread_percentage(bids, asks),
             'order_book_imbalance': self.calculate_imbalance(bids, asks)
         }
     
     def generate_recommendation(self, trend: Dict, volume: Dict, momentum: Dict, liquidity: Dict) -> str:
         """Генерація торгової рекомендації"""
-        # Складена логіка для генерації рекомендацій
         if momentum['rsi'] > 70 and trend['strength'] > 10:
             return "STRONG_SELL"
         elif momentum['rsi'] < 30 and trend['strength'] > 10:
@@ -126,19 +128,16 @@ class TradeAssistant:
     
     def calculate_confidence(self, trend: Dict, volume: Dict, momentum: Dict) -> float:
         """Розрахунок впевненості в сигналі"""
-        confidence = 50  # Базова впевненість
+        confidence = 50
         
-        # Корекція на основі тренду
         if trend['strength'] > 20:
             confidence += 20
         elif trend['strength'] > 10:
             confidence += 10
             
-        # Корекція на основі обсягів
         if volume['volume_ratio'] > 2:
             confidence += 15
             
-        # Корекція на основі моментуму
         if momentum['rsi'] > 70 or momentum['rsi'] < 30:
             confidence += 15
             
@@ -147,28 +146,27 @@ class TradeAssistant:
     def calculate_entry_points(self, klines: List) -> List[float]:
         """Розрахунок точок входу"""
         closes = [float(k[4]) for k in klines]
-        current_price = closes[-1]
+        current_price = closes[-1] if closes else 0
         
         return [
-            current_price * 0.98,  # -2%
-            current_price * 0.95,  # -5%
-            current_price * 0.92   # -8%
+            current_price * 0.98,
+            current_price * 0.95, 
+            current_price * 0.92
         ]
     
     def calculate_exit_points(self, klines: List) -> List[float]:
         """Розрахунок точок виходу"""
         closes = [float(k[4]) for k in klines]
-        current_price = closes[-1]
+        current_price = closes[-1] if closes else 0
         
         return [
-            current_price * 1.05,  # +5%
-            current_price * 1.08,  # +8%
-            current_price * 1.12   # +12%
+            current_price * 1.05,
+            current_price * 1.08,
+            current_price * 1.12
         ]
     
     def calculate_risk_level(self, market_data: Dict) -> str:
         """Розрахунок рівня ризику"""
-        # Спрощена логіка для прикладу
         volatility = self.calculate_volatility([float(k[4]) for k in market_data['klines']])
         
         if volatility > 10:
@@ -248,8 +246,8 @@ class TradeAssistant:
         if len(prices) < 3:
             return 0
             
-        recent_change = (prices[-1] - prices[-2]) / prices[-2]
-        previous_change = (prices[-2] - prices[-3]) / prices[-3]
+        recent_change = (prices[-1] - prices[-2]) / prices[-2] if prices[-2] != 0 else 0
+        previous_change = (prices[-2] - prices[-3]) / prices[-3] if prices[-3] != 0 else 0
         
         return (recent_change - previous_change) * 100
     
@@ -260,7 +258,7 @@ class TradeAssistant:
         best_bid = float(bids[0][0])
         best_ask = float(asks[0][0])
         
-        return ((best_ask - best_bid) / best_bid) * 100
+        return ((best_ask - best_bid) / best_bid) * 100 if best_bid != 0 else 0
     
     def calculate_imbalance(self, bids: List, asks: List) -> float:
         if not bids or not asks:
@@ -270,5 +268,6 @@ class TradeAssistant:
         ask_volume = sum(float(ask[1]) for ask in asks[:3])
         
         return bid_volume / ask_volume if ask_volume > 0 else float('inf')
+
 # Глобальний екземпляр
 trade_assistant = TradeAssistant()
