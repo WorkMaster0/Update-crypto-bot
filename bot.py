@@ -1,3 +1,4 @@
+from whale_tracker import whale_tracker
 from arbitrage_analyzer import arbitrage_analyzer
 import os
 import requests
