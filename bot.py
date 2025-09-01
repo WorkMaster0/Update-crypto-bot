@@ -6,7 +6,11 @@ import logging
 from datetime import datetime
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
-
+import sys
+if sys.prefix == sys.base_prefix:
+    print("Помилка: запускайте бота у віртуальному оточенні!")
+    sys.exit(1)
+    
 # Налаштування
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
