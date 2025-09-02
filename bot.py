@@ -1855,7 +1855,8 @@ def quantum_predict_handler(message):
     try:
         msg = bot.send_message(message.chat.id, "🔮 Ініціалізація квантового аналізу...")
         
-        # Ініціалізуємо квантовий стан
+        # Додаємо індикатор прогресу
+        bot.edit_message_text("🔮 Ініціалізація квантового стану...", message.chat.id, msg.message_id)
         quantum_predictor.initialize_quantum_state()
         
         # Топ токени для аналізу
@@ -1864,7 +1865,7 @@ def quantum_predict_handler(message):
             'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT'
         ]
         
-        # Прогнозуємо квантові стрибки
+        bot.edit_message_text("🔮 Аналіз квантових стрибків...", message.chat.id, msg.message_id)
         predictions = quantum_predictor.predict_quantum_jumps(top_symbols)
         
         message_text = "<b>🔮 КВАНТОВИЙ ПРОГНОЗ РИНКУ</b>\n\n"
@@ -1887,7 +1888,6 @@ def quantum_predict_handler(message):
                 message_text += f"   Квантова ентропія: {prediction['quantum_entropy']:.3f}\n"
                 message_text += "   ─────────────────\n"
             
-            # Додаємо квантові стратегії
             message_text += f"\n<b>⚡ КВАНТОВІ СТРАТЕГІЇ:</b>\n\n"
             for i, prediction in enumerate(predictions[:3]):
                 message_text += f"<b>Стратегія {i+1}:</b>\n"
@@ -1898,20 +1898,19 @@ def quantum_predict_handler(message):
             message_text += f"• <b>Суперпозиція:</b> Аналіз всіх можливих станів одночасно\n"
             message_text += f"• <b>Заплутаність:</b> Кореляції між квантовими станами\n"
             message_text += f"• <b>Тунелювання:</b> Прогнозування пробоїв рівнів\n"
-            message_text += f"• <b>Декогеренція:</b> Визначення моментів рішення\n"
         
         message_text += f"\n<b>⚠️ КВАНТОВІ ПОПЕРЕДЖЕННЯ:</b>\n"
         message_text += f"• Співвідношення невизначеності Гейзенберга\n"
         message_text += f"• Квантова декогеренція може спричинити раптові зміни\n"
-        message_text += f"• Ефект спостерігача впливає на результат\n"
         
         message_text += f"\n⏰ Квантовий час: {datetime.now().strftime('%H:%M:%S')}"
+        message_text += f"\n📊 Аналізовано {len(top_symbols)} активів"
         
         bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Квантова помилка: {e}")
-        bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {e}")
+        bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
 
 if __name__ == "__main__":
     bot.remove_webhook()
