@@ -164,7 +164,6 @@ class AdvancedWhaleAnalyzer:
         if not recent_trades:
             return None
         
-        # ВИПРАВЛЕНІ ВІДСТУПИ - ці рядки мають бути на одному рівні
         buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
         sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
         total_volume = buy_volume + sell_volume
