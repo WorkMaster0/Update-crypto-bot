@@ -1,3 +1,4 @@
+from whale_analyzer import whale_analyzer
 import os
 import requests
 import logging
@@ -1565,6 +1566,110 @@ def event_scanner_handler(message):
         
     except Exception as e:
         logger.error(f"Error in event_scanner: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# bot.py (додаємо лише команду)
+from whale_analyzer import whale_analyzer
+
+# ========== /smart_whale_alert команда ==========
+@bot.message_handler(commands=['smart_whale_alert'])
+def smart_whale_alert_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Розширений моніторинг китової активності...")
+        
+        # Отримуємо токени з високим обсягом
+        symbols_to_check = whale_analyzer.get_high_volume_symbols()
+        
+        if not symbols_to_check:
+            bot.edit_message_text("❌ Не вдалося отримати дані ринку", message.chat.id, msg.message_id)
+            return
+        
+        alerts = []
+        detailed_analysis = []
+        
+        for symbol in symbols_to_check:
+            try:
+                # Детальний аналіз
+                analysis = whale_analyzer.analyze_token_whale_activity(symbol)
+                if analysis:
+                    detailed_analysis.append(analysis)
+                
+                # Перевіряємо різні типи активності
+                accumulation = whale_analyzer.detect_whale_accumulation(symbol)
+                pump_prep = whale_analyzer.detect_pump_preparation(symbol)
+                dump_warning = whale_analyzer.detect_dump_warning(symbol)
+                
+                if accumulation:
+                    alerts.append(accumulation)
+                if pump_prep:
+                    alerts.append(pump_prep)
+                if dump_warning:
+                    alerts.append(dump_warning)
+                    
+                time.sleep(0.05)
+                
+            except Exception as e:
+                logger.error(f"Error analyzing {symbol}: {e}")
+                continue
+        
+        # Сортуємо алерти за важливістю
+        alerts.sort(key=lambda x: (
+            3 if x['type'] == 'DUMP_WARNING' 
+            else 2 if x['type'] == 'ACCUMULATION' 
+            else 1
+        ), reverse=True)
+        
+        message_text = "<b>🐋 РОЗШИРЕНІ КИТОВІ АЛЕРТИ</b>\n\n"
+        
+        if not alerts:
+            message_text += "ℹ️ Значної китової активності не виявлено\n"
+        else:
+            # Групуємо алерти за типом
+            dump_alerts = [a for a in alerts if a['type'] == 'DUMP_WARNING']
+            accumulation_alerts = [a for a in alerts if a['type'] == 'ACCUMULATION']
+            pump_alerts = [a for a in alerts if a['type'] == 'PUMP_PREPARATION']
+            
+            if dump_alerts:
+                message_text += "<b>🔻 НЕБЕЗПЕКА - МАСОВІ ПРОДАЖІ:</b>\n"
+                for alert in dump_alerts[:3]:
+                    message_text += f"• {alert['symbol']}: продажі ${alert['sell_volume']:,.0f}\n"
+                message_text += "\n"
+            
+            if accumulation_alerts:
+                message_text += "<b>🚀 НАКОПИЧЕННЯ - МОЖЛИВИЙ PUMP:</b>\n"
+                for alert in accumulation_alerts[:3]:
+                    message_text += f"• {alert['symbol']}: купівля ${alert['buy_volume']:,.0f}\n"
+                message_text += "\n"
+            
+            if pump_alerts:
+                message_text += "<b>🔧 ПІДГОТОВКА ДО РУХУ:</b>\n"
+                for alert in pump_alerts[:2]:
+                    message_text += f"• {alert['symbol']}: {alert['large_orders_count']} великих ордерів\n"
+                message_text += "\n"
+        
+        # Додаємо загальну статистику
+        message_text += f"<b>📊 ЗАГАЛЬНА СТАТИСТИКА:</b>\n"
+        message_text += f"• Проаналізовано токенів: {len(symbols_to_check)}\n"
+        message_text += f"• Знайдено сигналів: {len(alerts)}\n"
+        
+        if symbols_to_check:
+            message_text += f"• Найбільший обсяг: {symbols_to_check[0]}\n"
+        
+        # Додаємо рекомендації
+        message_text += f"\n<b>💡 РЕКОМЕНДАЦІЇ:</b>\n"
+        if dump_alerts:
+            message_text += "• Увага до токенів з масовими продажами\n"
+        if accumulation_alerts:
+            message_text += "• Можливі лонгові можливості\n"
+        if not alerts:
+            message_text += "• Ризики низькі, стандартна торгівля\n"
+        
+        message_text += f"\n⏰ Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in smart_whale_alert: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
