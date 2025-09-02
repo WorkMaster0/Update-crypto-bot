@@ -146,17 +146,23 @@ class AdvancedWhaleAnalyzer:
             return None
     
     def analyze_token_whale_activity(self, symbol: str) -> Optional[Dict]:
-        """Детальний аналіз китової активності для токена"""
-        try:
-            large_trades = self.get_large_trades(symbol, 200)
-            if not large_trades:
-                return None
+    """Детальний аналіз китової активності для токена"""
+    try:
+        # Пропускаємо стейблкоїни
+        stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
+        if any(stablecoin in symbol for stablecoin in stablecoins):
+            return None
             
-            two_hours_ago = datetime.now() - timedelta(hours=2)
-            recent_trades = [t for t in large_trades if t['time'] > two_hours_ago]
+        # Решта коду залишається без змін...
+        large_trades = self.get_large_trades(symbol, 200)
+        if not large_trades:
+            return None
             
-            if not recent_trades:
-                return None
+        two_hours_ago = datetime.now() - timedelta(hours=2)
+        recent_trades = [t for t in large_trades if t['time'] > two_hours_ago]
+        
+        if not recent_trades:
+            return None
             
             buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
             sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
