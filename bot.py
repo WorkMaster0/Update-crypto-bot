@@ -1169,7 +1169,8 @@ def check_token_handler(message):
         sr_levels = find_support_resistance(closes)
         event_type, price_change = detect_pump_dump(closes, volumes)
         
-analysis_text = f"""
+        # ВИПРАВЛЕНО: Додано закриваючу лапку і правильне форматування
+        analysis_text = f"""
 <b>{symbol} Analysis</b>
 
 Поточна ціна: {last_price:.4f} USD
@@ -1178,7 +1179,8 @@ RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепр
 Подія: {event_type if event_type else 'немає'} ({price_change:+.1f}%)
 
 <b>Key Levels:</b>
-"
+"""  # ← ДОДАНО ЗАКРИВАЮЧУ ЛАПКУ
+
         for level in sr_levels[-5:]:
             distance_pct = (last_price - level) / level * 100
             analysis_text += f"{level:.4f} ({distance_pct:+.1f}%)\n"
