@@ -1150,6 +1150,7 @@ def smart_auto_handler(message):
         logger.error(f"Error in smart_auto: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+#------/check_token------
 @bot.message_handler(commands=['check_token'])
 def check_token_handler(message):
     try:
@@ -1168,6 +1169,7 @@ def check_token_handler(message):
         sr_levels = find_support_resistance(closes)
         event_type, price_change = detect_pump_dump(closes, volumes)
         
+        # ВИПРАВЛЕНО: Додано f перед рядком
         analysis_text = f"""
 <b>{symbol} Analysis</b>
 
