@@ -1466,6 +1466,271 @@ def whale_alert_handler(message):
         logger.error(f"Error in whale_alert: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /drop_scanner команда ==========
+@bot.message_handler(commands=['drop_scanner'])
+def drop_scanner_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Сканую на потенційні дропи...")
+        
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=15).json()
+        
+        # Фільтруємо монети з високим обсягом
+        usdt_pairs = [d for d in data if isinstance(d, dict) and 
+                     d.get('symbol', '').endswith('USDT') and 
+                     float(d.get('quoteVolume', 0)) > 5000000]
+        
+        potential_drops = []
+        
+        for pair in usdt_pairs:
+            symbol = pair['symbol']
+            
+            # Отримуємо детальні дані
+            df = get_klines(symbol, interval="1h", limit=100)
+            if not df or len(df.get("c", [])) < 50:
+                continue
+                
+            closes = [float(c) for c in df["c"]]
+            volumes = [float(v) for v in df["v"]]
+            current_price = closes[-1]
+            
+            # Технічні індикатори
+            rsi = calculate_rsi(closes)
+            price_change_24h = float(pair['priceChangePercent'])
+            volume_ratio = volumes[-1] / (sum(volumes[-24:-1]) / 23) if len(volumes) > 24 else 1
+            
+            # Критерії для потенційного дропу
+            drop_probability = 0
+            
+            # Перекупленість + дивергенція
+            if rsi > 70 and price_change_24h > 20:
+                drop_probability += 30
+            
+            # Високий обсяг на падінні
+            if price_change_24h < -5 and volume_ratio > 2:
+                drop_probability += 25
+            
+            # Слабкі рівні підтримки
+            support_levels = find_support_resistance(closes)
+            nearest_support = min([lvl for lvl in support_levels if lvl < current_price], 
+                                 key=lambda x: abs(current_price - x), default=0)
+            support_distance = ((current_price - nearest_support) / current_price * 100) if nearest_support > 0 else 100
+            
+            if support_distance > 15:  # Далеко до підтримки
+                drop_probability += 20
+            
+            # Висока волатильність
+            volatility = calculate_volatility(closes[-24:])
+            if volatility > 8:
+                drop_probability += 15
+            
+            if drop_probability >= 50:
+                potential_drops.append({
+                    'symbol': symbol,
+                    'probability': drop_probability,
+                    'current_price': current_price,
+                    'rsi': rsi,
+                    'change_24h': price_change_24h,
+                    'support_distance': support_distance,
+                    'volatility': volatility
+                })
+        
+        # Сортуємо за ймовірністю дропу
+        potential_drops.sort(key=lambda x: x['probability'], reverse=True)
+        
+        message_text = "<b>🔻 ПОТЕНЦІЙНІ ДРОПИ (SHORT opportunities)</b>\n\n"
+        
+        if not potential_drops:
+            message_text += "ℹ️ Потенційних дропів не знайдено. Риск низький.\n"
+        else:
+            for i, drop in enumerate(potential_drops[:5], 1):
+                message_text += (f"{i}. <b>{drop['symbol']}</b>\n"
+                               f"   Ймовірність дропу: {drop['probability']}%\n"
+                               f"   Ціна: ${drop['current_price']:.4f}\n"
+                               f"   RSI: {drop['rsi']:.1f} (перекупленість)\n"
+                               f"   Зміна 24h: {drop['change_24h']:+.2f}%\n"
+                               f"   До підтримки: {drop['support_distance']:.1f}%\n"
+                               f"   Волатильність: {drop['volatility']:.1f}%\n"
+                               f"   ─────────────────\n")
+            
+            message_text += "\n<b>💡 Стратегія:</b>\n"
+            message_text += "• Чекайте підтвердження пробою підтримки\n"
+            message_text += "• Стоп-лос ниже останнього локального максимума\n"
+            message_text += "• Тейк-профіт на рівні найближчої підтримки\n"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in drop_scanner: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# ========== /pump_scanner команда ==========
+@bot.message_handler(commands=['pump_scanner'])
+def pump_scanner_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Сканую на потенційні пампы...")
+        
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=15).json()
+        
+        # Фільтруємо монети з середнім обсягом (не топ)
+        usdt_pairs = [d for d in data if isinstance(d, dict) and 
+                     d.get('symbol', '').endswith('USDT') and 
+                     1000000 < float(d.get('quoteVolume', 0)) < 20000000]  # Середні обсяги
+        
+        potential_pumps = []
+        
+        for pair in usdt_pairs:
+            symbol = pair['symbol']
+            
+            # Пропускаємо великі капіталізації
+            if any(x in symbol for x in ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA']):
+                continue
+                
+            # Отримуємо детальні дані
+            df = get_klines(symbol, interval="1h", limit=100)
+            if not df or len(df.get("c", [])) < 50:
+                continue
+                
+            closes = [float(c) for c in df["c"]]
+            volumes = [float(v) for v in df["v"]]
+            current_price = closes[-1]
+            
+            # Технічні індикатори
+            rsi = calculate_rsi(closes)
+            price_change_24h = float(pair['priceChangePercent'])
+            volume_ratio = volumes[-1] / (sum(volumes[-24:-1]) / 23) if len(volumes) > 24 else 1
+            
+            # Критерії для потенційного пампу
+            pump_probability = 0
+            
+            # Перепроданість + аккумуляція
+            if rsi < 35 and price_change_24h < -10:
+                pump_probability += 30
+            
+            # Зростання обсягу на низьких цінах
+            if volume_ratio > 1.5 and current_price < max(closes[-50:]):
+                pump_probability += 25
+            
+            # Близькість до ключових рівнів підтримки
+            support_levels = find_support_resistance(closes)
+            nearest_support = min([lvl for lvl in support_levels if lvl < current_price], 
+                                 key=lambda x: abs(current_price - x), default=0)
+            support_distance = ((current_price - nearest_support) / current_price * 100) if nearest_support > 0 else 100
+            
+            if support_distance < 5:  # Дуже близько до підтримки
+                pump_probability += 20
+            
+            # Низька волатильність перед рухом
+            volatility = calculate_volatility(closes[-24:])
+            if volatility < 4:
+                pump_probability += 15
+            
+            if pump_probability >= 50:
+                potential_pumps.append({
+                    'symbol': symbol,
+                    'probability': pump_probability,
+                    'current_price': current_price,
+                    'rsi': rsi,
+                    'change_24h': price_change_24h,
+                    'support_distance': support_distance,
+                    'volatility': volatility,
+                    'volume_ratio': volume_ratio
+                })
+        
+        # Сортуємо за ймовірністю пампу
+        potential_pumps.sort(key=lambda x: x['probability'], reverse=True)
+        
+        message_text = "<b>🚀 ПОТЕНЦІЙНІ ПАМПИ (LONG opportunities)</b>\n\n"
+        
+        if not potential_pumps:
+            message_text += "ℹ️ Потенційних пампів не знайдено. Чекайте сигналів.\n"
+        else:
+            for i, pump in enumerate(potential_pumps[:5], 1):
+                message_text += (f"{i}. <b>{pump['symbol']}</b>\n"
+                               f"   Ймовірність пампу: {pump['probability']}%\n"
+                               f"   Ціна: ${pump['current_price']:.6f}\n"
+                               f"   RSI: {pump['rsi']:.1f} (перепроданість)\n"
+                               f"   Зміна 24h: {pump['change_24h']:+.2f}%\n"
+                               f"   До підтримки: {pump['support_distance']:.1f}%\n"
+                               f"   Волатильність: {pump['volatility']:.1f}%\n"
+                               f"   Обсяг: x{pump['volume_ratio']:.1f}\n"
+                               f"   ─────────────────\n")
+            
+            message_text += "\n<b>💡 Стратегія:</b>\n"
+            message_text += "• Вхід при пробої локального resistance\n"
+            message_text += "• Стоп-лос ниже останньої підтримки\n"
+            message_text += "• Тейк-профіт на рівні найближчого опору\n"
+            message_text += "• Риск менше 2% від депозиту на угоду\n"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in pump_scanner: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# ========== /event_scanner команда ==========
+@bot.message_handler(commands=['event_scanner'])
+def event_scanner_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "📅 Сканую на важливі події...")
+        
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=15).json()
+        
+        # Шукаємо аномальні рухи
+        unusual_movements = []
+        
+        for pair in data:
+            if not isinstance(pair, dict) or not pair.get('symbol', '').endswith('USDT'):
+                continue
+                
+            symbol = pair['symbol']
+            price_change = float(pair.get('priceChangePercent', 0))
+            volume = float(pair.get('quoteVolume', 0))
+            
+            # Фільтруємо тільки значні рухи
+            if abs(price_change) > 15 and volume > 1000000:
+                unusual_movements.append({
+                    'symbol': symbol,
+                    'change': price_change,
+                    'volume': volume,
+                    'type': 'PUMP' if price_change > 0 else 'DUMP'
+                })
+        
+        message_text = "<b>⚡ АКТИВНІ ПОДІЇ НА РИНКУ</b>\n\n"
+        
+        if not unusual_movements:
+            message_text += "ℹ️ Значних рухів не виявлено. Риск спокійний.\n"
+        else:
+            # Групуємо за типом
+            pumps = [m for m in unusual_movements if m['type'] == 'PUMP']
+            dumps = [m for m in unusual_movements if m['type'] == 'DUMP']
+            
+            if pumps:
+                message_text += "<b>🚀 АКТИВНІ PUMP:</b>\n"
+                for i, pump in enumerate(pumps[:3], 1):
+                    message_text += (f"{i}. {pump['symbol']}: {pump['change']:+.2f}%\n"
+                                   f"   Обсяг: ${pump['volume']:,.0f}\n")
+                message_text += "\n"
+            
+            if dumps:
+                message_text += "<b>🔻 АКТИВНІ DUMP:</b>\n"
+                for i, dump in enumerate(dumps[:3], 1):
+                    message_text += (f"{i}. {dump['symbol']}: {dump['change']:+.2f}%\n"
+                                   f"   Обсяг: ${dump['volume']:,.0f}\n")
+            
+            message_text += "\n<b>⚠️ Попередження:</b>\n"
+            message_text += "• Не женіться за pump'ами - високий риск\n"
+            message_text += "• Чекайте відскоку після dump'ів для входу\n"
+            message_text += "• Перевіряйте новини по цих монетах\n"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in event_scanner: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
 if __name__ == "__main__":
     bot.remove_webhook()
     
