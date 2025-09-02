@@ -77,9 +77,9 @@ class MarketMakerScanner:
                 order_size = float(price) * float(volume)
                 price_float = float(price)
                 
-                # Перевіряємо чи ціна в межах ±10% від поточної
-                if (order_size > 200000 and current_price > 0 and
-                    0.9 * current_price < price_float < 1.1 * current_price):
+                # СТРОГІША УМОВА: ±5% і тільки перші 5 рівнів
+                if (order_size > 500000 and current_price > 0 and i <= 5 and
+                    0.95 * current_price < price_float < 1.05 * current_price):
                     
                     anomalies.append({
                         'symbol': symbol,
@@ -96,8 +96,9 @@ class MarketMakerScanner:
                 order_size = float(price) * float(volume)
                 price_float = float(price)
                 
-                if (order_size > 200000 and current_price > 0 and
-                    0.9 * current_price < price_float < 1.1 * current_price):
+                # СТРОГІША УМОВА: ±5% і тільки перші 5 рівнів
+                if (order_size > 500000 and current_price > 0 and i <= 5 and
+                    0.95 * current_price < price_float < 1.05 * current_price):
                     
                     anomalies.append({
                         'symbol': symbol,
@@ -115,8 +116,10 @@ class MarketMakerScanner:
                 order_size = float(price) * float(volume)
                 price_float = float(price)
                 
-                if (order_size > 500000 and i == 0 and current_price > 0 and
-                    0.9 * current_price < price_float < 1.1 * current_price):
+                # СТРОГІША УМОВА: ±2%, мінімум 1000 монет, перші 3 рівні
+                if (order_size > 1000000 and i <= 2 and current_price > 0 and
+                    0.98 * current_price < price_float < 1.02 * current_price and
+                    float(volume) > 1000):
                     
                     anomalies.append({
                         'symbol': symbol,
@@ -132,8 +135,10 @@ class MarketMakerScanner:
                 order_size = float(price) * float(volume)
                 price_float = float(price)
                 
-                if (order_size > 500000 and i == 0 and current_price > 0 and
-                    0.9 * current_price < price_float < 1.1 * current_price):
+                # СТРОГІША УМОВA: ±2%, мінімум 1000 монет, перші 3 рівні
+                if (order_size > 1000000 and i <= 2 and current_price > 0 and
+                    0.98 * current_price < price_float < 1.02 * current_price and
+                    float(volume) > 1000):
                     
                     anomalies.append({
                         'symbol': symbol,
