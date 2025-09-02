@@ -1,3 +1,4 @@
+from quantum_predictor import quantum_predictor
 from chain_reaction_scanner import chain_reaction_scanner
 from squeeze_scanner import squeeze_scanner
 from marketmaker_scanner import marketmaker_scanner
@@ -1847,6 +1848,70 @@ def chain_reaction_handler(message):
     except Exception as e:
         logger.error(f"Error in chain_reaction: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# ========== /quantum_predict команда ==========
+@bot.message_handler(commands=['quantum_predict'])
+def quantum_predict_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔮 Ініціалізація квантового аналізу...")
+        
+        # Ініціалізуємо квантовий стан
+        quantum_predictor.initialize_quantum_state()
+        
+        # Топ токени для аналізу
+        top_symbols = [
+            'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+            'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT'
+        ]
+        
+        # Прогнозуємо квантові стрибки
+        predictions = quantum_predictor.predict_quantum_jumps(top_symbols)
+        
+        message_text = "<b>🔮 КВАНТОВИЙ ПРОГНОЗ РИНКУ</b>\n\n"
+        
+        if not predictions:
+            message_text += "📭 Квантові стрибки не виявлені\n"
+            message_text += "💡 Ринок у стані квантової рівноваги"
+        else:
+            message_text += f"<b>🎯 Знайдено {len(predictions)} квантових стрибків:</b>\n\n"
+            
+            for i, prediction in enumerate(predictions[:5]):
+                emoji = "🟢" if prediction['direction'] == 'UP' else "🔴"
+                message_text += f"{i+1}. {emoji} <b>{prediction['symbol']}</b>\n"
+                message_text += f"   Напрямок: {prediction['direction']}\n"
+                message_text += f"   Впевненість: {prediction['confidence']:.1f}%\n"
+                message_text += f"   Поточна ціна: ${prediction['current_price']:.6f}\n"
+                message_text += f"   Цільова ціна: ${prediction['target_price']:.6f}\n"
+                message_text += f"   Час: {prediction['timeframe']}\n"
+                message_text += f"   Ризик: {prediction['risk_level']}\n"
+                message_text += f"   Квантова ентропія: {prediction['quantum_entropy']:.3f}\n"
+                message_text += "   ─────────────────\n"
+            
+            # Додаємо квантові стратегії
+            message_text += f"\n<b>⚡ КВАНТОВІ СТРАТЕГІЇ:</b>\n\n"
+            for i, prediction in enumerate(predictions[:3]):
+                message_text += f"<b>Стратегія {i+1}:</b>\n"
+                message_text += f"{quantum_predictor.generate_quantum_strategy(prediction)}\n"
+                message_text += "─────────────────\n"
+            
+            message_text += f"\n<b>🌌 КВАНТОВІ ПРИНЦИПИ:</b>\n"
+            message_text += f"• <b>Суперпозиція:</b> Аналіз всіх можливих станів одночасно\n"
+            message_text += f"• <b>Заплутаність:</b> Кореляції між квантовими станами\n"
+            message_text += f"• <b>Тунелювання:</b> Прогнозування пробоїв рівнів\n"
+            message_text += f"• <b>Декогеренція:</b> Визначення моментів рішення\n"
+        
+        message_text += f"\n<b>⚠️ КВАНТОВІ ПОПЕРЕДЖЕННЯ:</b>\n"
+        message_text += f"• Співвідношення невизначеності Гейзенберга\n"
+        message_text += f"• Квантова декогеренція може спричинити раптові зміни\n"
+        message_text += f"• Ефект спостерігача впливає на результат\n"
+        
+        message_text += f"\n⏰ Квантовий час: {datetime.now().strftime('%H:%M:%S')}"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Квантова помилка: {e}")
+        bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {e}")
 
 if __name__ == "__main__":
     bot.remove_webhook()
