@@ -1788,6 +1788,65 @@ def low_float_squeeze_handler(message):
         logger.error(f"Error in low_float_squeeze: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /chain_reaction команда ==========
+@bot.message_handler(commands=['chain_reaction'])
+def chain_reaction_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Аналізую ланцюгові реакції на ринку...")
+        
+        # Детектуємо поточні ланцюгові реакції
+        current_reactions = chain_reaction_scanner.detect_chain_reactions()
+        
+        # Прогнозуємо наступні рухи
+        next_movers = chain_reaction_scanner.predict_next_movers(current_reactions)
+        
+        message_text = "<b>🔮 ЛАНЦЮГОВІ РЕАКЦІЇ НА РИНКУ</b>\n\n"
+        
+        if not current_reactions and not next_movers:
+            message_text += "📭 Активних ланцюгових реакцій не виявлено\n"
+            message_text += "💡 Ринок знаходиться в стані рівноваги"
+        else:
+            if current_reactions:
+                message_text += "<b>🎯 АКТИВНІ РЕАКЦІЇ:</b>\n\n"
+                for i, reaction in enumerate(current_reactions[:3]):
+                    message_text += f"{i+1}. ⚡ <b>{reaction['leader']}</b> → {reaction['follower']}\n"
+                    message_text += f"   Зміна лідера: {reaction['leader_change']:+.1f}%\n"
+                    message_text += f"   Зміна послідовника: {reaction['follower_change']:+.1f}%\n"
+                    message_text += f"   Кореляція: {reaction['correlation']:.2f}\n"
+                    message_text += f"   Затримка: {reaction['time_delay']}\n"
+                    message_text += f"   Впевненість: {reaction['confidence']:.1f}%\n"
+                    message_text += "   ─────────────────\n"
+            
+            if next_movers:
+                message_text += f"\n<b>🔮 ПРОГНОЗ НАСТУПНИХ РУХІВ:</b>\n\n"
+                for i, mover in enumerate(next_movers[:3]):
+                    message_text += f"{i+1}. 🎯 <b>{mover['symbol']}</b>\n"
+                    message_text += f"   Корелює з: {mover['correlated_to']}\n"
+                    message_text += f"   Сила кореляції: {mover['correlation_strength']:.2f}\n"
+                    message_text += f"   Очікувана затримка: {mover['expected_delay']}\n"
+                    message_text += f"   Впевненість: {mover['confidence']:.1f}%\n"
+                    message_text += "   ─────────────────\n"
+            
+            message_text += f"\n<b>💡 СТРАТЕГІЯ ТОРГІВЛІ:</b>\n"
+            message_text += f"1. 📊 <b>Відстежуй лідера:</b> Спостерігай за першим токеном\n"
+            message_text += f"2. ⏰ <b>Чекай затримку:</b> {current_reactions[0]['time_delay'] if current_reactions else '15-25 хв'}\n"
+            message_text += f"3. 🎯 <b>Входи в послідовника:</b> До початку руху\n"
+            message_text += f"4. 📈 <b>Фіксуй прибуток:</b> На 50-70% від руху лідера\n\n"
+            
+            message_text += f"<b>🎯 РЕКОМЕНДАЦІЇ:</b>\n"
+            message_text += f"• Ризик: 1-2% на угоду\n"
+            message_text += f"• Таймфрейм: 15-60 хвилин\n"
+            message_text += f"• Stop Loss: 2-3% нижче входу\n"
+            message_text += f"• Take Profit: 3-5% вище входу\n"
+        
+        message_text += f"\n⏰ Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in chain_reaction: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
 if __name__ == "__main__":
     bot.remove_webhook()
     
