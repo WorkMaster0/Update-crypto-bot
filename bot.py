@@ -1,3 +1,4 @@
+from squeeze_scanner import squeeze_scanner
 from marketmaker_scanner import marketmaker_scanner
 from whale_analyzer import whale_analyzer
 import os
@@ -1729,6 +1730,62 @@ def marketmaker_mistakes_handler(message):
         
     except Exception as e:
         logger.error(f"Error in marketmaker_mistakes: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# ========== /low_float_squeeze команда ==========
+@bot.message_handler(commands=['low_float_squeeze'])
+def low_float_squeeze_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Сканую малоліквідні токени для сквізів...")
+        
+        # Шукаємо можливості
+        opportunities = squeeze_scanner.find_squeeze_opportunities(
+            min_volume=500000,    # Мінімум $500K обсягу
+            max_volume=30000000   # Максимум $30M обсягу
+        )
+        
+        message_text = "<b>🎯 СКВІЗИ НА МАЛОЛІКВІДНИХ ТОКЕНАХ</b>\n\n"
+        
+        if not opportunities:
+            message_text += "📭 Наразі немає хороших можливостей для сквізів\n"
+            message_text += "💡 Спробуйте пізніше або змініть параметри пошуку"
+        else:
+            message_text += f"<b>Знайдено {len(opportunities)} можливостей:</b>\n\n"
+            
+            for i, opportunity in enumerate(opportunities):
+                message_text += f"{i+1}. {squeeze_scanner.format_squeeze_message(opportunity)}\n"
+                message_text += "   ─────────────────\n"
+            
+            message_text += f"\n<b>💡 СТРАТЕГІЯ ТОРГІВЛІ:</b>\n"
+            
+            # Динамічні рекомендації based on opportunity type
+            long_opportunities = [o for o in opportunities if o['opportunity_type'] == 'LONG_SQUEEZE']
+            short_opportunities = [o for o in opportunities if o['opportunity_type'] == 'SHORT_SQUEEZE']
+            
+            if long_opportunities:
+                message_text += f"<b>🟢 LONG СКВІЗИ:</b>\n"
+                message_text += f"• Ставте LIMIT BUY на 1-2% вище поточної ціни\n"
+                message_text += f"• TP: 2-5% вище цільової ціни\n"
+                message_text += f"• SL: 2-3% нижче входу\n\n"
+            
+            if short_opportunities:
+                message_text += f"<b>🔴 SHORT СКВІЗИ:</b>\n"
+                message_text += f"• Ставте LIMIT SELL на 1-2% нижче поточної ціни\n"
+                message_text += f"• TP: 2-5% нижче цільової ціни\n"
+                message_text += f"• SL: 2-3% вище входу\n\n"
+            
+            message_text += f"<b>🎯 ЗАГАЛЬНІ РЕКОМЕНДАЦІЇ:</b>\n"
+            message_text += f"• Ризик: не більше 1-2% на угоду\n"
+            message_text += f"• Час утримання: 15-60 хвилин\n"
+            message_text += f"• Перевіряйте стакан перед входом\n"
+            message_text += f"• Увага до спреду (>1% = погано)\n"
+        
+        message_text += f"\n⏰ Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in low_float_squeeze: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
