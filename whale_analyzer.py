@@ -203,29 +203,6 @@ class AdvancedWhaleAnalyzer:
             return None
     
     def get_high_volume_symbols(self, min_volume: float = 10000000) -> List[str]:
-        """Отримати токени з високим обсягом торгів"""
-        try:
-            url = f"{self.base_url}/ticker/24hr"
-            data = safe_request(url, timeout=15)
-            
-            if not data or not isinstance(data, list):
-                return []
-                
-            high_volume_symbols = [
-                d for d in data 
-                if isinstance(d, dict) and 
-                d.get('symbol', '').endswith('USDT') and 
-                float(d.get('quoteVolume', 0)) > min_volume
-            ]
-            
-            high_volume_symbols.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
-            return [s['symbol'] for s in high_volume_symbols[:30]]
-            
-        except Exception as e:
-            logger.error(f"Error getting high volume symbols: {e}")
-            return []
-            
-            def get_high_volume_symbols(self, min_volume: float = 10000000) -> List[str]:
     """Отримати токени з високим обсягом торгів (без стейблкоїнів)"""
     try:
         url = f"{self.base_url}/ticker/24hr"
