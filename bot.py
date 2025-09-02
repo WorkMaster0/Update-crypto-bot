@@ -1,3 +1,4 @@
+from chain_reaction_scanner import chain_reaction_scanner
 from squeeze_scanner import squeeze_scanner
 from marketmaker_scanner import marketmaker_scanner
 from whale_analyzer import whale_analyzer
