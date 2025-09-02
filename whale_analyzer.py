@@ -146,95 +146,94 @@ class AdvancedWhaleAnalyzer:
             return None
     
     def analyze_token_whale_activity(self, symbol: str) -> Optional[Dict]:
-"""Детальний аналіз китової активності для токена"""
-    
-    try:
-        # Пропускаємо стейблкоїни
-        stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
-        if any(stablecoin in symbol for stablecoin in stablecoins):
-            return None
+        """Детальний аналіз китової активності для токена"""
+        try:
+            # Пропускаємо стейблкоїни
+            stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
+            if any(stablecoin in symbol for stablecoin in stablecoins):
+                return None
+                
+            # Решта коду залишається без змін...
+            large_trades = self.get_large_trades(symbol, 200)
+            if not large_trades:
+                return None
+                
+            two_hours_ago = datetime.now() - timedelta(hours=2)
+            recent_trades = [t for t in large_trades if t['time'] > two_hours_ago]
             
-        # Решта коду залишається без змін...
-        large_trades = self.get_large_trades(symbol, 200)
-        if not large_trades:
-            return None
+            if not recent_trades:
+                return None
             
-        two_hours_ago = datetime.now() - timedelta(hours=2)
-        recent_trades = [t for t in large_trades if t['time'] > two_hours_ago]
-        
-        if not recent_trades:
-            return None
-        
-        buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
-        sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
-        total_volume = buy_volume + sell_volume
-        
-        if total_volume == 0:
-            return None
+            buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
+            sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
+            total_volume = buy_volume + sell_volume
             
-        buy_ratio = buy_volume / total_volume
-        
-        klines = get_klines_cached(symbol, interval="15m", limit=20)
-        if not klines or not klines.get('c'):
-            return None
-        
-        closes = klines['c']
-        if len(closes) < 2:
-            return None
+            if total_volume == 0:
+                return None
+                
+            buy_ratio = buy_volume / total_volume
             
-        price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
-        
-        activity_type = "NEUTRAL"
-        if buy_ratio > 0.7 and price_change > 2:
-            activity_type = "STRONG_BUYING"
-        elif buy_ratio < 0.3 and price_change < -2:
-            activity_type = "STRONG_SELLING"
-        elif buy_ratio > 0.6:
-            activity_type = "BUYING"
-        elif buy_ratio < 0.4:
-            activity_type = "SELLING"
-        
-        return {
-            'symbol': symbol,
-            'activity_type': activity_type,
-            'buy_volume': buy_volume,
-            'sell_volume': sell_volume,
-            'buy_ratio': buy_ratio,
-            'price_change': price_change,
-            'trade_count': len(recent_trades),
-            'total_volume': total_volume
-        }
+            klines = get_klines_cached(symbol, interval="15m", limit=20)
+            if not klines or not klines.get('c'):
+                return None
             
-    except Exception as e:
-        logger.error(f"Error in detailed analysis for {symbol}: {e}")
-        return None
+            closes = klines['c']
+            if len(closes) < 2:
+                return None
+                
+            price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
+            
+            activity_type = "NEUTRAL"
+            if buy_ratio > 0.7 and price_change > 2:
+                activity_type = "STRONG_BUYING"
+            elif buy_ratio < 0.3 and price_change < -2:
+                activity_type = "STRONG_SELLING"
+            elif buy_ratio > 0.6:
+                activity_type = "BUYING"
+            elif buy_ratio < 0.4:
+                activity_type = "SELLING"
+            
+            return {
+                'symbol': symbol,
+                'activity_type': activity_type,
+                'buy_volume': buy_volume,
+                'sell_volume': sell_volume,
+                'buy_ratio': buy_ratio,
+                'price_change': price_change,
+                'trade_count': len(recent_trades),
+                'total_volume': total_volume
+            }
+                
+        except Exception as e:
+            logger.error(f"Error in detailed analysis for {symbol}: {e}")
+            return None
     
     def get_high_volume_symbols(self, min_volume: float = 10000000) -> List[str]:
-    """Отримати токени з високим обсягом торгів (без стейблкоїнів)"""
-    try:
-        url = f"{self.base_url}/ticker/24hr"
-        data = safe_request(url, timeout=15)
-        
-        if not data or not isinstance(data, list):
-            return []
-        
-        # Стейблкоїни, які потрібно виключити
-        stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
+        """Отримати токени з високим обсягом торгів (без стейблкоїнів)"""
+        try:
+            url = f"{self.base_url}/ticker/24hr"
+            data = safe_request(url, timeout=15)
             
-        high_volume_symbols = [
-            d for d in data 
-            if isinstance(d, dict) and 
-            d.get('symbol', '').endswith('USDT') and 
-            float(d.get('quoteVolume', 0)) > min_volume and
-            not any(stablecoin in d.get('symbol', '') for stablecoin in stablecoins)
-        ]
-        
-        high_volume_symbols.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
-        return [s['symbol'] for s in high_volume_symbols[:30]]
-        
-    except Exception as e:
-        logger.error(f"Error getting high volume symbols: {e}")
-        return []
+            if not data or not isinstance(data, list):
+                return []
+            
+            # Стейблкоїни, які потрібно виключити
+            stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
+                
+            high_volume_symbols = [
+                d for d in data 
+                if isinstance(d, dict) and 
+                d.get('symbol', '').endswith('USDT') and 
+                float(d.get('quoteVolume', 0)) > min_volume and
+                not any(stablecoin in d.get('symbol', '') for stablecoin in stablecoins)
+            ]
+            
+            high_volume_symbols.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
+            return [s['symbol'] for s in high_volume_symbols[:30]]
+            
+        except Exception as e:
+            logger.error(f"Error getting high volume symbols: {e}")
+            return []
 
 # Глобальний екземпляр аналізатора
 whale_analyzer = AdvancedWhaleAnalyzer()
