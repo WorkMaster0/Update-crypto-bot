@@ -1,0 +1,13 @@
+def analyze_token_whale_activity(self, symbol: str) -> Optional[Dict]:
+    """Детальний аналіз китової активності для токена"""
+    try:
+        # Пропускаємо стейблкоїни
+        stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
+        if any(stablecoin in symbol for stablecoin in stablecoins):
+            return None
+            
+        # Решта коду залишається без змін...
+        large_trades = self.get_large_trades(symbol, 200)
+        if not large_trades:
+            return None
+        # ...
