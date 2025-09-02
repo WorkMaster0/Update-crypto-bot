@@ -869,7 +869,7 @@ def send_welcome(message):
 /stats - Статистика ринку
 /alerts_on - Увімкнути сповіщення
 /alerts_off - Вимкнути сповіщення
-"""
+
     bot.reply_to(message, help_text, parse_mode="HTML")
 
 @bot.message_handler(commands=['alerts_on'])
