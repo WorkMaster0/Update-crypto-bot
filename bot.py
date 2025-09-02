@@ -1,3 +1,4 @@
+from marketmaker_scanner import marketmaker_scanner
 from whale_analyzer import whale_analyzer
 import os
 import requests
@@ -1675,6 +1676,59 @@ def smart_whale_alert_handler(message):
         
     except Exception as e:
         logger.error(f"Error in smart_whale_alert: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
+
+# ========== /marketmaker_mistakes команда ==========
+@bot.message_handler(commands=['marketmaker_mistakes'])
+def marketmaker_mistakes_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🔍 Сканую помилки маркетмейкерів...")
+        
+        # Скануємо топові символи
+        anomalies = marketmaker_scanner.scan_top_symbols()
+        
+        message_text = "<b>🔮 ПОШУК ПОМИЛОК МАРКЕТМЕЙКЕРІВ</b>\n\n"
+        
+        if not anomalies:
+            message_text += "📭 Помилок маркетмейкерів не виявлено\n"
+            message_text += "💡 Маркет стабільний - чекайте на можливості"
+        else:
+            # Групуємо за типом аномалії
+            liquidity_gaps = [a for a in anomalies if a['type'] == 'LIQUIDITY_GAP']
+            fat_fingers = [a for a in anomalies if a['type'] == 'FAT_FINGER']
+            manipulation_walls = [a for a in anomalies if a['type'] == 'MANIPULATION_WALL']
+            
+            message_text += f"<b>🎯 Виявлено {len(anomalies)} аномалій:</b>\n"
+            message_text += f"• 📊 Пропуски ліквідності: {len(liquidity_gaps)}\n"
+            message_text += f"• 💥 Fat-finger ордери: {len(fat_fingers)}\n"
+            message_text += f"• 🎭 Маніпулятивні стіни: {len(manipulation_walls)}\n\n"
+            
+            # Показуємо топ-5 найцікавіших аномалій
+            for i, anomaly in enumerate(anomalies[:5]):
+                message_text += f"{i+1}. {marketmaker_scanner.format_anomaly_message(anomaly)}\n"
+                message_text += "─────────────────\n"
+            
+            message_text += f"\n<b>💡 СТРАТЕГІЯ ЕКСПЛУАТАЦІЇ:</b>\n"
+            message_text += f"• 📊 <b>Пропуски ліквідності:</b>\n"
+            message_text += f"   Ставте limit ордери в пропуски\n"
+            message_text += f"   Риск мінімальний, профіт гарантований\n\n"
+            
+            message_text += f"• 💥 <b>Fat-finger ордери:</b>\n"
+            message_text += f"   Чекайте видалення великого ордера\n"
+            message_text += f"   Входьте в зворотному напрямку\n"
+            message_text += f"   Високий risk/reward\n\n"
+            
+            message_text += f"• 🎭 <b>Маніпулятивні стіни:</b>\n"
+            message_text += f"   Копіюйте великих гравців\n"
+            message_text += f"   Вихід перед їхньою фіксацією\n"
+            message_text += f"   Потрібен точний таймінг\n"
+        
+        message_text += f"\n⏰ Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error in marketmaker_mistakes: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 if __name__ == "__main__":
