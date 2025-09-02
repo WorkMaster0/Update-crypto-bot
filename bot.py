@@ -1150,54 +1150,6 @@ def smart_auto_handler(message):
         logger.error(f"Error in smart_auto: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
-#------/check_token------
-@bot.message_handler(commands=['check_token'])
-def check_token_handler(message):
-    try:
-        symbol = message.text.split()[1].upper() + "USDT"
-        df = get_klines(symbol, interval="1h", limit=200)
-        
-        if not df:
-            bot.send_message(message.chat.id, "❌ Токен не знайдено або помилка даних")
-            return
-            
-        closes = [float(c) for c in df["c"]]
-        volumes = [float(v) for v in df["v"]]
-        last_price = closes[-1]
-        
-        rsi, vol_spike = calculate_technical_indicators(closes, volumes)
-        sr_levels = find_support_resistance(closes)
-        event_type, price_change = detect_pump_dump(closes, volumes)
-        
-        # ВИПРАВЛЕНО: Додано закриваючу лапку і правильне форматування
-        analysis_text = f"""
-<b>{symbol} Analysis</b>
-
-Поточна ціна: {last_price:.4f} USD
-RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепроданість)' if rsi < 30 else ''}
-Обсяг: {'підвищений' if vol_spike else 'нормальний'}
-Подія: {event_type if event_type else 'немає'} ({price_change:+.1f}%)
-
-<b>Key Levels:</b>
-"""  # ← ДОДАНО ЗАКРИВАЮЧУ ЛАПКУ
-
-        for level in sr_levels[-5:]:
-            distance_pct = (last_price - level) / level * 100
-            analysis_text += f"{level:.4f} ({distance_pct:+.1f}%)\n"
-
-        if event_type == "PUMP":
-            analysis_text += "\n🔴 Рекомендація: Шорт (можливий корекція після пампу)"
-        elif event_type == "DUMP":
-            analysis_text += "\n🟢 Рекомендація: Лонг (можливий відскок після дампу)"
-
-        bot.send_message(message.chat.id, analysis_text, parse_mode="HTML")
-        
-    except IndexError:
-        bot.send_message(message.chat.id, "ℹ️ Використання: /check_token BTC")
-    except Exception as e:
-        logger.error(f"Error in check_token: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
-
 @bot.message_handler(commands=['stats'])
 def market_stats(message):
     try:
