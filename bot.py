@@ -846,43 +846,48 @@ def index():
     return "Crypto Bot is running!"
 
 # ==================== BOT COMMANDS ====================
+
+# ========== /start та /help команди ==========
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     help_text = """
 🤖 Smart Crypto Bot - Розширений аналіз ринку
 
 🚀 <b>НОВІ КОМАНДИ:</b>
-/trade_signal <token> - Генерація торгових сигналів
+/trade_signal &lt;token&gt; - Генерація торгових сигналів
 /whale_alert - Моніторинг китової активності
 /arbitrage - Пошук арбітражних можливостей
-/market_depth <pair> - Аналіз глибини ринку
+/market_depth &lt;pair&gt; - Аналіз глибини ринку
 
 📊 <b>Основні команди:</b>
 /smart_auto - Автоматичний пошук сигналів
 /pump_scan - Сканування на памп активність  
 /volume_anomaly - Пошук аномальних обсягів
-/advanced_analysis <token> - Розширений аналіз токена
+/advanced_analysis &lt;token&gt; - Розширений аналіз токена
 
 ⚙️ <b>Інші команди:</b>
 /settings - Налаштування
-/check_token <token> - Перевірка токена
+/check_token &lt;token&gt; - Перевірка токена
 /stats - Статистика ринку
 /alerts_on - Увімкнути сповіщення
 /alerts_off - Вимкнути сповіщення
 """
     bot.reply_to(message, help_text, parse_mode="HTML")
 
+# ========== /alerts_on команда ==========
 @bot.message_handler(commands=['alerts_on'])
 def enable_alerts(message):
     ALERT_SUBSCRIPTIONS[message.chat.id] = True
     bot.reply_to(message, "🔔 Сповіщення увімкнено! Ви отримуватимете автоматичні сповіщення про памп/дамп.")
 
+# ========== /alerts_off команда ==========
 @bot.message_handler(commands=['alerts_off'])
 def disable_alerts(message):
     if message.chat.id in ALERT_SUBSCRIPTIONS:
         del ALERT_SUBSCRIPTIONS[message.chat.id]
     bot.reply_to(message, "🔕 Сповіщення вимкнено.")
 
+# ========== /pump_scan команда ==========
 @bot.message_handler(commands=['pump_scan'])
 def pump_scan_handler(message):
     try:
@@ -952,6 +957,7 @@ def pump_scan_handler(message):
         logger.error(f"Error in pump_scan: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /volume_anomaly команда ==========
 @bot.message_handler(commands=['volume_anomaly'])
 def volume_anomaly_handler(message):
     try:
@@ -1009,6 +1015,7 @@ def volume_anomaly_handler(message):
         logger.error(f"Error in volume_anomaly: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /advanced_analysis команда ==========
 @bot.message_handler(commands=['advanced_analysis'])
 def advanced_analysis_handler(message):
     try:
@@ -1062,6 +1069,7 @@ def advanced_analysis_handler(message):
         logger.error(f"Error in advanced_analysis: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /smart_auto команда ==========
 @bot.message_handler(commands=['smart_auto'])
 def smart_auto_handler(message):
     try:
@@ -1150,6 +1158,7 @@ def smart_auto_handler(message):
         logger.error(f"Error in smart_auto: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /check_token команда ==========
 @bot.message_handler(commands=['check_token'])
 def check_token_handler(message):
     try:
@@ -1195,6 +1204,7 @@ RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепр
         logger.error(f"Error in check_token: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /stats команда ==========
 @bot.message_handler(commands=['stats'])
 def market_stats(message):
     try:
@@ -1221,6 +1231,7 @@ def market_stats(message):
         logger.error(f"Error in stats: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /settings команда ==========
 @bot.message_handler(commands=['settings'])
 def show_settings(message):
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -1316,6 +1327,7 @@ def process_dump_threshold(message):
 def main_menu(message):
     send_welcome(message)
 
+# ========== /arbitrage команда ==========
 @bot.message_handler(commands=['arbitrage'])
 def arbitrage_handler(message):
     try:
@@ -1344,6 +1356,7 @@ def arbitrage_handler(message):
         logger.error(f"Error in arbitrage: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /market_depth команда ==========
 @bot.message_handler(commands=['market_depth'])
 def market_depth_handler(message):
     try:
@@ -1390,6 +1403,7 @@ def market_depth_handler(message):
         logger.error(f"Error in market_depth: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /trade_signal команда ==========
 @bot.message_handler(commands=['trade_signal'])
 def trade_signal_handler(message):
     try:
@@ -1428,6 +1442,7 @@ def trade_signal_handler(message):
         logger.error(f"Error in trade_signal: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
+# ========== /whale_alert команда ==========
 @bot.message_handler(commands=['whale_alert'])
 def whale_alert_handler(message):
     try:
