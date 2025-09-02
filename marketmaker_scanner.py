@@ -12,6 +12,18 @@ class MarketMakerScanner:
     def __init__(self):
         self.base_url = "https://api.binance.com/api/v3"
         
+    def get_current_price(self, symbol: str) -> float:
+        """Отримати поточну ціну токена"""
+        try:
+            url = f"{self.base_url}/ticker/price?symbol={symbol}"
+            data = safe_request(url)
+            if data and isinstance(data, dict) and 'price' in data:
+                return float(data['price'])
+            return 0
+        except Exception as e:
+            logger.error(f"Error getting current price for {symbol}: {e}")
+            return 0
+        
     def find_marketmaker_anomalies(self, symbol: str, bids: List, asks: List) -> List[Dict]:
         """Знайти аномалії маркетмейкерів в стакані"""
         anomalies = []
@@ -19,6 +31,9 @@ class MarketMakerScanner:
         try:
             if not bids or not asks or len(bids) < 10 or len(asks) < 10:
                 return anomalies
+            
+            # Отримуємо поточну ціну для перевірки
+            current_price = self.get_current_price(symbol)
             
             # Конвертуємо ціни в числа
             bid_prices = [float(b[0]) for b in bids]
@@ -57,14 +72,19 @@ class MarketMakerScanner:
                         'opportunity': 'SELL_LIMIT_IN_GAP'
                     })
             
-            # 2. Пошук fat-finger ордерів (дуже великі)
+            # 2. Пошук fat-finger ордерів (дуже великі) з перевіркою ціни
             for i, (price, volume) in enumerate(bids[:15]):
                 order_size = float(price) * float(volume)
-                if order_size > 200000:  # Ордери > $200k
+                price_float = float(price)
+                
+                # Перевіряємо чи ціна в межах ±10% від поточної
+                if (order_size > 200000 and current_price > 0 and
+                    0.9 * current_price < price_float < 1.1 * current_price):
+                    
                     anomalies.append({
                         'symbol': symbol,
                         'type': 'FAT_FINGER',
-                        'price': float(price),
+                        'price': price_float,
                         'volume': float(volume),
                         'size_usd': order_size,
                         'side': 'BID',
@@ -74,11 +94,15 @@ class MarketMakerScanner:
             
             for i, (price, volume) in enumerate(asks[:15]):
                 order_size = float(price) * float(volume)
-                if order_size > 200000:
+                price_float = float(price)
+                
+                if (order_size > 200000 and current_price > 0 and
+                    0.9 * current_price < price_float < 1.1 * current_price):
+                    
                     anomalies.append({
                         'symbol': symbol,
                         'type': 'FAT_FINGER',
-                        'price': float(price),
+                        'price': price_float,
                         'volume': float(volume),
                         'size_usd': order_size,
                         'side': 'ASK', 
@@ -86,14 +110,18 @@ class MarketMakerScanner:
                         'opportunity': 'WAIT_FOR_CANCEL'
                     })
             
-            # 3. Пошук маніпулятивних стін
+            # 3. Пошук маніпулятивних стін з перевіркою ціни
             for i, (price, volume) in enumerate(bids[:5]):
                 order_size = float(price) * float(volume)
-                if order_size > 500000 and i == 0:  # Стіна на першому рівні
+                price_float = float(price)
+                
+                if (order_size > 500000 and i == 0 and current_price > 0 and
+                    0.9 * current_price < price_float < 1.1 * current_price):
+                    
                     anomalies.append({
                         'symbol': symbol,
                         'type': 'MANIPULATION_WALL',
-                        'price': float(price),
+                        'price': price_float,
                         'volume': float(volume),
                         'size_usd': order_size,
                         'side': 'BID',
@@ -102,11 +130,15 @@ class MarketMakerScanner:
             
             for i, (price, volume) in enumerate(asks[:5]):
                 order_size = float(price) * float(volume)
-                if order_size > 500000 and i == 0:
+                price_float = float(price)
+                
+                if (order_size > 500000 and i == 0 and current_price > 0 and
+                    0.9 * current_price < price_float < 1.1 * current_price):
+                    
                     anomalies.append({
                         'symbol': symbol,
                         'type': 'MANIPULATION_WALL',
-                        'price': float(price),
+                        'price': price_float,
                         'volume': float(volume),
                         'size_usd': order_size,
                         'side': 'ASK',
