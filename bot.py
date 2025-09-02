@@ -856,8 +856,10 @@ def send_welcome(message):
 🚀 <b>НОВІ КОМАНДИ:</b>
 /trade_signal &lt;token&gt; - Генерація торгових сигналів
 /whale_alert - Моніторинг китової активності
-/arbitrage - Пошук арбітражних можливостей
-/market_depth &lt;pair&gt; - Аналіз глибини ринку
+/smart_whale_alert - покращений Моніторинг китової активності
+/drop_scanner - Шукає монети для шорт-позицій
+/pump_scanner - Шукає монети для лонг-позицій
+/event_scanner - Моніторить активні події на ринку
 
 📊 <b>Основні команди:</b>
 /smart_auto - Автоматичний пошук сигналів
@@ -867,25 +869,8 @@ def send_welcome(message):
 
 ⚙️ <b>Інші команди:</b>
 /settings - Налаштування
-/check_token &lt;token&gt; - Перевірка токена
-/stats - Статистика ринку
-/alerts_on - Увімкнути сповіщення
-/alerts_off - Вимкнути сповіщення
 """
     bot.reply_to(message, help_text, parse_mode="HTML")
-
-# ========== /alerts_on команда ==========
-@bot.message_handler(commands=['alerts_on'])
-def enable_alerts(message):
-    ALERT_SUBSCRIPTIONS[message.chat.id] = True
-    bot.reply_to(message, "🔔 Сповіщення увімкнено! Ви отримуватимете автоматичні сповіщення про памп/дамп.")
-
-# ========== /alerts_off команда ==========
-@bot.message_handler(commands=['alerts_off'])
-def disable_alerts(message):
-    if message.chat.id in ALERT_SUBSCRIPTIONS:
-        del ALERT_SUBSCRIPTIONS[message.chat.id]
-    bot.reply_to(message, "🔕 Сповіщення вимкнено.")
 
 # ========== /pump_scan команда ==========
 @bot.message_handler(commands=['pump_scan'])
@@ -1158,79 +1143,6 @@ def smart_auto_handler(message):
         logger.error(f"Error in smart_auto: {e}")
         bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
-# ========== /check_token команда ==========
-@bot.message_handler(commands=['check_token'])
-def check_token_handler(message):
-    try:
-        symbol = message.text.split()[1].upper() + "USDT"
-        df = get_klines(symbol, interval="1h", limit=200)
-        
-        if not df:
-            bot.send_message(message.chat.id, "❌ Токен не знайдено або помилка даних")
-            return
-            
-        closes = [float(c) for c in df["c"]]
-        volumes = [float(v) for v in df["v"]]
-        last_price = closes[-1]
-        
-        rsi, vol_spike = calculate_technical_indicators(closes, volumes)
-        sr_levels = find_support_resistance(closes)
-        event_type, price_change = detect_pump_dump(closes, volumes)
-        
-        analysis_text = f"""
-<b>{symbol} Analysis</b>
-
-Поточна ціна: ${last_price:.4f}
-RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепроданість)' if rsi < 30 else ''}
-Обсяг: {'підвищений' if vol_spike else 'нормальний'}
-Подія: {event_type if event_type else 'немає'} ({price_change:+.1f}%)
-
-<b>Key Levels:</b>
-"""
-        for level in sr_levels[-5:]:
-            distance_pct = (last_price - level) / level * 100
-            analysis_text += f"{level:.4f} ({distance_pct:+.1f}%)\n"
-
-        if event_type == "PUMP":
-            analysis_text += "\n🔴 Рекомендація: Шорт (можливий корекція після пампу)"
-        elif event_type == "DUMP":
-            analysis_text += "\n🟢 Рекомендація: Лонг (можливий відскок після дампу)"
-
-        bot.send_message(message.chat.id, analysis_text, parse_mode="HTML")
-        
-    except IndexError:
-        bot.send_message(message.chat.id, "ℹ️ Використання: /check_token BTC")
-    except Exception as e:
-        logger.error(f"Error in check_token: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
-
-# ========== /stats команда ==========
-@bot.message_handler(commands=['stats'])
-def market_stats(message):
-    try:
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        data = requests.get(url, timeout=10).json()
-        
-        usdt_pairs = [d for d in data if d['symbol'].endswith('USDT') and float(d['quoteVolume']) > 1000000]
-        
-        gainers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']), reverse=True)[:5]
-        losers = sorted(usdt_pairs, key=lambda x: float(x['priceChangePercent']))[:5]
-        
-        stats_text = "<b>📈 Market Statistics</b>\n\n"
-        stats_text += "<b>Top Gainers:</b>\n"
-        for i, coin in enumerate(gainers, 1):
-            stats_text += f"{i}. {coin['symbol']} +{float(coin['priceChangePercent']):.1f}%\n"
-        
-        stats_text += "\n<b>Top Losers:</b>\n"
-        for i, coin in enumerate(losers, 1):
-            stats_text += f"{i}. {coin['symbol']} {float(coin['priceChangePercent']):.1f}%\n"
-            
-        bot.send_message(message.chat.id, stats_text, parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Error in stats: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
-
 # ========== /settings команда ==========
 @bot.message_handler(commands=['settings'])
 def show_settings(message):
@@ -1326,82 +1238,6 @@ def process_dump_threshold(message):
 @bot.message_handler(func=lambda message: message.text == "Головне меню 🏠")
 def main_menu(message):
     send_welcome(message)
-
-# ========== /arbitrage команда ==========
-@bot.message_handler(commands=['arbitrage'])
-def arbitrage_handler(message):
-    try:
-        msg = bot.send_message(message.chat.id, "🔍 Шукаю арбітражні можливості...")
-        
-        prices = arbitrage_analyzer.get_ticker_prices()
-        if not prices:
-            bot.edit_message_text("❌ Не вдалося отримати дані з Binance", message.chat.id, msg.message_id)
-            return
-        
-        opportunities = arbitrage_analyzer.find_triangular_arbitrage_pairs(prices)
-        
-        if not opportunities:
-            bot.edit_message_text("ℹ️ Арбітражних можливостей не знайдено.", message.chat.id, msg.message_id)
-            return
-        
-        message_text = "<b>🔎 Знайдені арбітражні можливості:</b>\n\n"
-        
-        for i, opportunity in enumerate(opportunities[:5]):
-            message_text += f"{i+1}. {arbitrage_analyzer.format_opportunity_message(opportunity)}\n"
-            message_text += "─" * 40 + "\n"
-        
-        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Error in arbitrage: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
-
-# ========== /market_depth команда ==========
-@bot.message_handler(commands=['market_depth'])
-def market_depth_handler(message):
-    try:
-        parts = message.text.split()
-        if len(parts) < 2:
-            bot.reply_to(message, "ℹ️ Використання: /market_depth BTCUSDT")
-            return
-            
-        symbol = parts[1].upper()
-        msg = bot.send_message(message.chat.id, f"🔍 Аналізую глибину ринку для {symbol}...")
-        
-        depth_analysis = arbitrage_analyzer.calculate_depth_arbitrage(symbol)
-        
-        if not depth_analysis:
-            bot.edit_message_text("❌ Не вдалося проаналізувати глибину ринку", message.chat.id, msg.message_id)
-            return
-        
-        report_text = f"<b>📊 Аналіз глибини ринку {symbol}</b>\n\n"
-        report_text += f"Найкраща ціна купівлі: {depth_analysis['best_bid']:.8f}\n"
-        report_text += f"Найкраща ціна продажу: {depth_analysis['best_ask']:.8f}\n"
-        report_text += f"Спред: {depth_analysis['spread']:.8f}\n"
-        report_text += f"Спред (%): {depth_analysis['spread_percentage']:.4f}%\n"
-        report_text += f"Обсяг купівлі (топ-5): {depth_analysis['bid_volume']:.4f}\n"
-        report_text += f"Обсяг продажу (топ-5): {depth_analysis['ask_volume']:.4f}\n"
-        report_text += f"Диспропорція: {depth_analysis['imbalance']:.4f}\n\n"
-        
-        if depth_analysis['spread_percentage'] < 0.1:
-            report_text += "🟢 Низький спред - хороша ліквідність\n"
-        elif depth_analysis['spread_percentage'] < 0.5:
-            report_text += "🟡 Середній спред - помірна ліквідність\n"
-        else:
-            report_text += "🔴 Високий спред - низька ліквідність\n"
-            
-        if depth_analysis['imbalance'] > 2:
-            report_text += "📈 Сильний дисбаланс у бік купівлі\n"
-        elif depth_analysis['imbalance'] < 0.5:
-            report_text += "📉 Сильний дисбаланс у бік продажу\n"
-        else:
-            report_text += "⚖️ Збалансований ринок\n"
-        
-        bot.edit_message_text(report_text, message.chat.id, msg.message_id, parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Error in market_depth: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка: {e}")
 
 # ========== /trade_signal команда ==========
 @bot.message_handler(commands=['trade_signal'])
