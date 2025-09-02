@@ -163,50 +163,51 @@ class AdvancedWhaleAnalyzer:
         
         if not recent_trades:
             return None
-            
-            buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
-            sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
-            total_volume = buy_volume + sell_volume
-            
-            if total_volume == 0:
-                return None
-                
-            buy_ratio = buy_volume / total_volume
-            
-            klines = get_klines_cached(symbol, interval="15m", limit=20)
-            if not klines or not klines.get('c'):
-                return None
-            
-            closes = klines['c']
-            if len(closes) < 2:
-                return None
-                
-            price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
-            
-            activity_type = "NEUTRAL"
-            if buy_ratio > 0.7 and price_change > 2:
-                activity_type = "STRONG_BUYING"
-            elif buy_ratio < 0.3 and price_change < -2:
-                activity_type = "STRONG_SELLING"
-            elif buy_ratio > 0.6:
-                activity_type = "BUYING"
-            elif buy_ratio < 0.4:
-                activity_type = "SELLING"
-            
-            return {
-                'symbol': symbol,
-                'activity_type': activity_type,
-                'buy_volume': buy_volume,
-                'sell_volume': sell_volume,
-                'buy_ratio': buy_ratio,
-                'price_change': price_change,
-                'trade_count': len(recent_trades),
-                'total_volume': total_volume
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in detailed analysis for {symbol}: {e}")
+        
+        # ВИПРАВЛЕНІ ВІДСТУПИ - ці рядки мають бути на одному рівні
+        buy_volume = sum(t['value'] for t in recent_trades if t.get('is_buyer', False))
+        sell_volume = sum(t['value'] for t in recent_trades if not t.get('is_buyer', True))
+        total_volume = buy_volume + sell_volume
+        
+        if total_volume == 0:
             return None
+            
+        buy_ratio = buy_volume / total_volume
+        
+        klines = get_klines_cached(symbol, interval="15m", limit=20)
+        if not klines or not klines.get('c'):
+            return None
+        
+        closes = klines['c']
+        if len(closes) < 2:
+            return None
+            
+        price_change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
+        
+        activity_type = "NEUTRAL"
+        if buy_ratio > 0.7 and price_change > 2:
+            activity_type = "STRONG_BUYING"
+        elif buy_ratio < 0.3 and price_change < -2:
+            activity_type = "STRONG_SELLING"
+        elif buy_ratio > 0.6:
+            activity_type = "BUYING"
+        elif buy_ratio < 0.4:
+            activity_type = "SELLING"
+        
+        return {
+            'symbol': symbol,
+            'activity_type': activity_type,
+            'buy_volume': buy_volume,
+            'sell_volume': sell_volume,
+            'buy_ratio': buy_ratio,
+            'price_change': price_change,
+            'trade_count': len(recent_trades),
+            'total_volume': total_volume
+        }
+            
+    except Exception as e:
+        logger.error(f"Error in detailed analysis for {symbol}: {e}")
+        return None
     
     def get_high_volume_symbols(self, min_volume: float = 10000000) -> List[str]:
     """Отримати токени з високим обсягом торгів (без стейблкоїнів)"""
