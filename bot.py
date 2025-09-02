@@ -1173,7 +1173,7 @@ def check_token_handler(message):
         analysis_text = f"""
 <b>{symbol} Analysis</b>
 
-Поточна ціна: ${last_price:.4f}  # Подвійні фігурні дужки для екранування
+Поточна ціна: ${last_price:.4f}
 RSI: {rsi:.1f} {'(перекупленість)' if rsi > 70 else '(перепроданість)' if rsi < 30 else ''}
 Обсяг: {'підвищений' if vol_spike else 'нормальний'}
 Подія: {event_type if event_type else 'немає'} ({price_change:+.1f}%)
