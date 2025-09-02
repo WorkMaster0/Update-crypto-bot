@@ -1169,8 +1169,7 @@ def check_token_handler(message):
         sr_levels = find_support_resistance(closes)
         event_type, price_change = detect_pump_dump(closes, volumes)
         
-        # ВИПРАВЛЕНО: Додано f перед рядком
-        analysis_text = f"""
+       analysis_text = f"""
 <b>{symbol} Analysis</b>
 
 Поточна ціна: ${last_price:.4f}
