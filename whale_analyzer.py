@@ -146,7 +146,7 @@ class AdvancedWhaleAnalyzer:
             return None
     
     def analyze_token_whale_activity(self, symbol: str) -> Optional[Dict]:
-    """Детальний аналіз китової активності для токена"""
+    "Детальний аналіз китової активності для токена"
     try:
         # Пропускаємо стейблкоїни
         stablecoins = ['USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'DAI', 'PAX']
