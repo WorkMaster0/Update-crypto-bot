@@ -1,3 +1,4 @@
+from whale_forecaster import whale_forecaster
 from quantum_predictor import quantum_predictor
 from chain_reaction_scanner import chain_reaction_scanner
 from squeeze_scanner import squeeze_scanner
@@ -1911,6 +1912,47 @@ def quantum_predict_handler(message):
     except Exception as e:
         logger.error(f"Квантова помилка: {e}")
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
+
+# Додаємо нову команду
+async def whale_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для передбачення китових рухів"""
+    try:
+        analysis = whale_forecaster.predict_whale_movements()
+        
+        if not analysis:
+            await update.message.reply_text("🔮 Наразі сигналів для передбачення немає. Кіти спокійні.")
+            return
+        
+        response = "🔮 *WHALE FORECAST*\n\n"
+        response += "_Передбачення китових активностей на найближчі 15-30 хв:_\n\n"
+        
+        for prediction in analysis[:3]:  # Топ-3 передбачення
+            emoji = "📈" if prediction['direction'] == 'BUY' else "📉"
+            response += f"{emoji} *{prediction['symbol']}*\n"
+            response += f"Очікується: {prediction['direction']}\n"
+            response += f"Впевненість: {prediction['confidence']}%\n"
+            response += f"Ордер-блоки: {prediction['order_blocks']}\n"
+            response += f"Обсяг підготовки: ${prediction['prep_volume']:,.0f}\n"
+            response += "─" * 30 + "\n"
+        
+        response += "\n⚠️ _Це прогноз на основі алгоритмічного аналізу_"
+        
+        await update.message.reply_text(response, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in whale_forecast command: {e}")
+        await update.message.reply_text("❌ Помилка при аналізі. Спробуйте пізніше.")
+
+# В основній функції додаємо обробник
+def main():
+    # ... (ініціалізація бота)
+    
+    # Додаємо обробники команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("whale", whale_alert))
+    application.add_handler(CommandHandler("whale_forecast", whale_forecast))  # Нова команда!
+    # ... (інші обробники)
 
 if __name__ == "__main__":
     bot.remove_webhook()
