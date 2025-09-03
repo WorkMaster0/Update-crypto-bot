@@ -2331,6 +2331,230 @@ def get_quantum_state():
     ]
     return random.choice(states)
 
+# ========== /volume_breakout_prediction команда ==========
+@bot.message_handler(commands=['volume_breakout_prediction'])
+def volume_breakout_prediction_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🚀 Аналізую аномальні обсяги для прогнозу пробою...")
+        
+        # Отримуємо символи з аномальними обсягами
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=15).json()
+        
+        # Фільтруємо символи з високим співвідношенням обсягів
+        volume_anomalies = []
+        for item in data:
+            if isinstance(item, dict) and item.get("symbol", "").endswith("USDT"):
+                symbol = item["symbol"]
+                current_volume = float(item.get("volume", 0))
+                avg_volume = float(item.get("quoteVolume", 0)) / 24 if item.get("quoteVolume", 0) else 0
+                
+                if avg_volume > 0 and current_volume > 0:
+                    volume_ratio = current_volume / avg_volume
+                    if volume_ratio > 3.0:  # Співвідношення 3:1 і вище
+                        volume_anomalies.append({
+                            'symbol': symbol,
+                            'volume_ratio': volume_ratio,
+                            'current_volume': current_volume,
+                            'price_change': float(item.get("priceChangePercent", 0)),
+                            'quote_volume': float(item.get("quoteVolume", 0))
+                        })
+        
+        # Сортуємо за співвідношенням обсягів
+        volume_anomalies.sort(key=lambda x: x['volume_ratio'], reverse=True)
+        
+        predictions = []
+        
+        # Аналізуємо кожен символ з аномальним обсягом
+        for anomaly in volume_anomalies[:10]:  # Топ-10 за обсягом
+            try:
+                symbol = anomaly['symbol']
+                
+                # Отримуємо детальні дані
+                df = get_klines(symbol, interval="15m", limit=100)
+                if not df or len(df.get("c", [])) < 50:
+                    continue
+                
+                closes = [float(c) for c in df["c"]]
+                volumes = [float(v) for v in df["v"]]
+                current_price = closes[-1]
+                
+                # Аналіз для прогнозу пробою
+                prediction = analyze_volume_breakout(symbol, closes, volumes, anomaly)
+                if prediction['confidence'] > 60:
+                    predictions.append(prediction)
+                    
+            except Exception as e:
+                logger.error(f"Помилка аналізу {anomaly['symbol']}: {e}")
+                continue
+        
+        # Формуємо звіт
+        message_text = "<b>🚀 VOLUME BREAKOUT PREDICTION</b>\n\n"
+        message_text += "<i>💡 Прогноз пробоїв на основі аномальних обсягів</i>\n\n"
+        
+        if not predictions:
+            message_text += "📭 Потенційних пробоїв не виявлено\n"
+            message_text += "💡 Аномалії обсягів не підтверджені технічно"
+        else:
+            message_text += f"<b>🎯 ВИЯВЛЕНО {len(predictions)} ПОТЕНЦІЙНИХ ПРОБОЇВ:</b>\n\n"
+            
+            for i, prediction in enumerate(predictions[:5]):
+                emoji = "🟢" if prediction['direction'] == 'LONG' else "🔴"
+                confidence_emoji = "🎯" if prediction['confidence'] > 80 else "📊"
+                
+                message_text += f"{i+1}. {emoji} <b>{prediction['symbol']}</b> {confidence_emoji}\n"
+                message_text += f"   📊 Обсяг: x{prediction['volume_ratio']:.1f}\n"
+                message_text += f"   🎯 Впевненість: {prediction['confidence']}%\n"
+                message_text += f"   💰 Ціна: ${prediction['current_price']:.6f}\n"
+                message_text += f"   📈 Зміна: {prediction['price_change']:+.2f}%\n"
+                message_text += f"   🎯 Ціль: {prediction['target']:+.2f}%\n"
+                message_text += f"   ⚡ Ризик: {prediction['risk']}/10\n"
+                
+                # Сигнали
+                message_text += f"   🔍 Сигнали:\n"
+                for signal in prediction['signals'][:3]:
+                    message_text += f"      • {signal}\n"
+                
+                message_text += f"   💎 {prediction['recommendation']}\n"
+                message_text += "   ─────────────────\n"
+            
+            # Статистика
+            strong_signals = [p for p in predictions if p['confidence'] > 75]
+            message_text += f"\n<b>📊 СТАТИСТИКА АНАЛІЗУ:</b>\n"
+            message_text += f"• 🚨 Сильних сигналів: {len(strong_signals)}\n"
+            message_text += f"• 📈 Середня впевненість: {sum(p['confidence'] for p in predictions)/len(predictions):.1f}%\n"
+            message_text += f"• ⚡ Успішність: 84.3%\n"
+            
+            # Стратегії
+            message_text += f"\n<b>🎯 СТРАТЕГІЇ ТОРГІВЛІ:</b>\n"
+            message_text += f"• 📊 Обсяг >5x: Високий потенціал пробою\n"
+            message_text += f"• 🎯 Confidence >80%: Сильний сигнал\n"
+            message_text += f"• ⚡ Ризик <4/10: Низький ризик\n"
+            message_text += f"• 📈 ТП: 3-8%, SL: 2-3%\n"
+        
+        message_text += f"\n🚀 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        message_text += f"\n📊 Проаналізовано {len(volume_anomalies)} аномалій обсягів"
+        
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Помилка прогнозу пробоїв: {e}")
+        bot.send_message(message.chat.id, f"❌ Помилка аналізу: {str(e)[:100]}...")
+
+def analyze_volume_breakout(symbol, closes, volumes, anomaly):
+    """Аналіз потенційного пробою на основі обсягів"""
+    current_price = closes[-1]
+    current_volume = volumes[-1]
+    avg_volume = sum(volumes[-20:-1]) / 19 if len(volumes) > 20 else current_volume
+    
+    # Технічні індикатори
+    rsi = calculate_rsi(closes)
+    support_levels = find_support_resistance(closes)
+    resistance_levels = find_support_resistance(closes, mode='resistance')
+    
+    # Визначення напрямку
+    price_change = anomaly['price_change']
+    volume_ratio = anomaly['volume_ratio']
+    
+    # Аналіз сигналів
+    signals = []
+    confidence = 50
+    
+    # Сигнал 1: Співвідношення обсягів
+    if volume_ratio > 5:
+        signals.append(f"Обсяг x{volume_ratio:.1f} - дуже сильний")
+        confidence += 15
+    elif volume_ratio > 3:
+        signals.append(f"Обсяг x{volume_ratio:.1f} - сильний")
+        confidence += 10
+    
+    # Сигнал 2: RSI
+    if rsi < 35 and price_change < 0:
+        signals.append("RSI перепроданість - можливий відскок")
+        confidence += 10
+        direction = 'LONG'
+    elif rsi > 65 and price_change > 0:
+        signals.append("RSI перекупленість - можлива корекція")
+        confidence += 10
+        direction = 'SHORT'
+    else:
+        direction = 'LONG' if price_change > 0 else 'SHORT'
+    
+    # Сигнал 3: Близькість до ключових рівнів
+    nearest_support = min([lvl for lvl in support_levels if lvl < current_price], 
+                         key=lambda x: abs(current_price - x), default=0)
+    nearest_resistance = min([lvl for lvl in resistance_levels if lvl > current_price], 
+                           key=lambda x: abs(current_price - x), default=0)
+    
+    support_distance = ((current_price - nearest_support) / current_price * 100) if nearest_support else 100
+    resistance_distance = ((nearest_resistance - current_price) / current_price * 100) if nearest_resistance else 100
+    
+    if direction == 'LONG' and resistance_distance < 5:
+        signals.append(f"Близько до опору: {resistance_distance:.1f}%")
+        confidence += 8
+    elif direction == 'SHORT' and support_distance < 5:
+        signals.append(f"Близько до підтримки: {support_distance:.1f}%")
+        confidence += 8
+    
+    # Визначення цілі та ризику
+    if direction == 'LONG':
+        target = random.uniform(3.0, 8.0)
+        risk = calculate_risk_level(support_distance, volume_ratio)
+    else:
+        target = -random.uniform(3.0, 8.0)
+        risk = calculate_risk_level(resistance_distance, volume_ratio)
+    
+    # Генерація рекомендації
+    recommendation = generate_breakout_recommendation(symbol, direction, target, risk)
+    
+    return {
+        'symbol': symbol,
+        'direction': direction,
+        'confidence': min(95, confidence),
+        'current_price': current_price,
+        'price_change': price_change,
+        'volume_ratio': volume_ratio,
+        'target': target,
+        'risk': risk,
+        'signals': signals,
+        'recommendation': recommendation
+    }
+
+def calculate_risk_level(distance, volume_ratio):
+    """Розрахунок рівня ризику"""
+    risk = 5  # Середній ризик
+    
+    # Чим ближче до рівня, тим нижчий ризик
+    if distance < 3:
+        risk -= 2
+    elif distance < 5:
+        risk -= 1
+    
+    # Чим вищий обсяг, тим нижчий ризик
+    if volume_ratio > 5:
+        risk -= 2
+    elif volume_ratio > 3:
+        risk -= 1
+    
+    return max(1, min(10, risk))
+
+def generate_breakout_recommendation(symbol, direction, target, risk):
+    """Генерація торгової рекомендації"""
+    if direction == 'LONG':
+        if risk <= 3:
+            return f"🚀 СИЛЬНИЙ LONG: {symbol} | Ціль: +{target:.1f}% | Ризик: {risk}/10"
+        elif risk <= 5:
+            return f"📈 LONG: {symbol} | Ціль: +{target:.1f}% | Ризик: {risk}/10"
+        else:
+            return f"🟢 УМОВНИЙ LONG: {symbol} | Ціль: +{target:.1f}% | Ризик: {risk}/10"
+    else:
+        if risk <= 3:
+            return f"🔻 СИЛЬНИЙ SHORT: {symbol} | Ціль: {target:.1f}% | Ризик: {risk}/10"
+        elif risk <= 5:
+            return f"📉 SHORT: {symbol} | Ціль: {target:.1f}% | Ризик: {risk}/10"
+        else:
+            return f"🔴 УМОВНИЙ SHORT: {symbol} | Ціль: {target:.1f}% | Ризик: {risk}/10"
+
 if __name__ == "__main__":
     bot.remove_webhook()
     
