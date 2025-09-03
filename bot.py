@@ -1,9 +1,3 @@
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-import asyncio
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from whale_forecaster import whale_forecaster
 from quantum_predictor import quantum_predictor
 from chain_reaction_scanner import chain_reaction_scanner
 from squeeze_scanner import squeeze_scanner
@@ -1917,44 +1911,6 @@ def quantum_predict_handler(message):
     except Exception as e:
         logger.error(f"Квантова помилка: {e}")
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
-
-# Додаємо нову команду
-async def whale_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для передбачення китових рухів"""
-    logger.info(f"Received whale_forecast command from {update.effective_user.id}")
-    
-    # Відправляємо повідомлення про початок обробки
-    processing_msg = await update.message.reply_text("🔮 Аналізую китові активності...")
-    
-    try:
-        # Використовуємо асинхронну версію
-        analysis = await whale_forecaster.predict_whale_movements()
-        logger.info(f"Analysis result: {len(analysis) if analysis else 0} predictions")
-        
-        if not analysis:
-            await processing_msg.edit_text("🔮 Наразі сигналів для передбачення немає. Кіти спокійні.")
-            return
-        
-        response = "🔮 *WHALE FORECAST*\n\n"
-        response += "_Передбачення китових активностей на найближчі 15-30 хв:_\n\n"
-        
-        for prediction in analysis[:3]:  # Топ-3
-            emoji = "📈" if prediction['direction'] == 'BUY' else "📉"
-            response += f"{emoji} *{prediction['symbol']}*\n"
-            response += f"Напрямок: {prediction['direction']}\n"
-            response += f"Впевненість: {prediction['confidence']}%\n"
-            response += f"Кластери: {prediction['order_blocks']}\n"
-            response += "─" * 25 + "\n"
-        
-        response += "\n⚠️ _Прогноз на основі аналізу стакану_"
-        
-        await processing_msg.edit_text(response, parse_mode='Markdown')
-        
-    except asyncio.TimeoutError:
-        await processing_msg.edit_text("⏰ Час очікування вийшов. Спробуйте ще раз.")
-    except Exception as e:
-        logger.error(f"Error in whale_forecast command: {e}")
-        await processing_msg.edit_text("❌ Помилка при аналізі. Спробуйте пізніше.")
 
 if __name__ == "__main__":
     bot.remove_webhook()
