@@ -1,3 +1,5 @@
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from whale_forecaster import whale_forecaster
 from quantum_predictor import quantum_predictor
 from chain_reaction_scanner import chain_reaction_scanner
