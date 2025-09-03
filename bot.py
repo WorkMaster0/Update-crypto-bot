@@ -1919,6 +1919,7 @@ def quantum_predict_handler(message):
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
 
 # Додаємо нову команду
+@bot.message_handler(commands=['whale_forecast'])
 async def whale_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для передбачення китових рухів"""
     try:
