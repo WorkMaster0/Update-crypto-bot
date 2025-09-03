@@ -2025,7 +2025,7 @@ def dark_pool_flow_handler(message):
         message_text += f"\n📊 Проскановано {len(top_symbols)} активів"
         message_text += f"\n🌑 Dark Pool coverage: 87.3%"
         
-        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML')
+        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Помилка dark pool аналізу: {e}")
