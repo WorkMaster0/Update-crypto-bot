@@ -1918,10 +1918,14 @@ def quantum_predict_handler(message):
         logger.error(f"Квантова помилка: {e}")
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
 
+# Додаємо нову команду
 async def whale_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда для передбачення китових рухів"""
+    logger.info(f"Received whale_forecast command from {update.effective_user.id}")
+    
     try:
         analysis = whale_forecaster.predict_whale_movements()
+        logger.info(f"Analysis result: {len(analysis) if analysis else 0} predictions")
         
         if not analysis:
             await update.message.reply_text("🔮 Наразі сигналів для передбачення немає. Кіти спокійні.")
