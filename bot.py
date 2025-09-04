@@ -1930,61 +1930,58 @@ def get_klines(symbol, interval="5m", limit=100):
         "v": [float(x[5]) for x in data],  # volume
     }
 
-# ========= AI DARK POOL ANALYSIS =========
-def ai_dark_pool_analysis(symbol, closes, volumes):
-    """AI-подібний аналіз прихованих потоків"""
+# ========= AI MARKET ANALYSIS =========
+def ai_market_analysis(symbol, closes, volumes):
     last_price = closes[-1]
     avg_price = sum(closes[-20:]) / 20
     last_vol = volumes[-1]
     avg_vol = sum(volumes[-20:]) / 20
 
-    # Liquidity Shock Index (LSI)
-    lsi = (last_vol / avg_vol) * (1 if abs(last_price - avg_price) < avg_price * 0.002 else 0.5)
-
-    # Hidden Accumulation Score (HAS)
-    has = 1.0 if last_vol > 2 * avg_vol and last_price >= avg_price else 0.5
-
-    # Smart Flow Confidence (SFC)
-    sfc = int(min(95, (lsi * 10 + has * 20 + random.uniform(0, 15))))
-
-    # Прихований потік
-    net_flow = round((lsi * has * random.uniform(0.3, 1.5)) * (1 if random.random() > 0.4 else -1), 2)
-
+    lsi = (last_vol / avg_vol) * (1 if abs(last_price - avg_price) < avg_price*0.002 else 0.5)
+    has = 1.0 if last_vol > 2*avg_vol and last_price >= avg_price else 0.5
+    sfc = int(min(95, lsi*10 + has*20 + random.uniform(0,15)))
+    net_flow = round((lsi*has*random.uniform(0.3,1.5)) * (1 if random.random() > 0.4 else -1), 2)
     unusual_activity = has > 0.8 and lsi > 3
 
+    # Прогноз на 15-30 хв
+    price_trend = (closes[-1] - closes[-6]) / closes[-6] * 100 if len(closes) >= 6 else 0
+    short_term_forecast = "Uptrend" if net_flow > 0 and price_trend > 0 else "Downtrend" if net_flow < 0 and price_trend < 0 else "Sideways"
+
     return {
+        "symbol": symbol,
         "net_flow": net_flow,
         "confidence": sfc,
-        "liquidity_shock_index": round(lsi, 2),
+        "liquidity_shock_index": round(lsi,2),
         "hidden_accumulation_score": has,
-        "unusual_activity": unusual_activity
+        "unusual_activity": unusual_activity,
+        "short_term_forecast": short_term_forecast
     }
 
 # ========= RECOMMENDATIONS =========
-def generate_ai_recommendation(dp_data, price_change_24h):
+def generate_ai_recommendation(dp_data):
     net_flow = dp_data['net_flow']
     confidence = dp_data['confidence']
+    forecast = dp_data['short_term_forecast']
 
     if confidence < 60:
-        return "LOW CONFIDENCE - Wait for confirmation"
+        return f"LOW CONFIDENCE - Wait for confirmation ({forecast})"
     if net_flow > 1.0:
-        return "STRONG ACCUMULATION - Buy on dips"
+        return f"STRONG ACCUMULATION - Buy on dips ({forecast})"
     elif net_flow > 0.5:
-        return "MODERATE BUYING - Scale in slowly"
+        return f"MODERATE BUYING - Scale in slowly ({forecast})"
     elif net_flow < -1.0:
-        return "STRONG DISTRIBUTION - Take profits"
+        return f"STRONG DISTRIBUTION - Take profits ({forecast})"
     elif net_flow < -0.5:
-        return "MODERATE SELLING - Reduce exposure"
+        return f"MODERATE SELLING - Reduce exposure ({forecast})"
     else:
-        return "NEUTRAL FLOW - Monitor"
+        return f"NEUTRAL FLOW - Monitor ({forecast})"
 
 # ========= CRYPTO DARK POOL HANDLER =========
 @bot.message_handler(commands=['dark_pool_flow'])
 def dark_pool_flow_handler(message):
     try:
-        msg = bot.send_message(message.chat.id, "🌑 Підключення до AI Dark Pool...")
+        msg = bot.send_message(message.chat.id, "🌑 AI Dark Pool: збирання даних...")
 
-        # Отримуємо дані Binance
         url = "https://api.binance.com/api/v3/ticker/24hr"
         data = requests.get(url, timeout=15).json()
 
@@ -2001,7 +1998,7 @@ def dark_pool_flow_handler(message):
             klines = get_klines(symbol, interval="5m", limit=100)
             if not klines:
                 continue
-            dp_data = ai_dark_pool_analysis(symbol, klines["c"], klines["v"])
+            dp_data = ai_market_analysis(symbol, klines["c"], klines["v"])
             insights.append({
                 'symbol': symbol,
                 'data': dp_data,
@@ -2010,16 +2007,20 @@ def dark_pool_flow_handler(message):
             })
             time.sleep(0.1)
 
-        # Сортування по впевненості
+        # Сортування за впевненістю
         insights.sort(key=lambda x: x['data']['confidence'], reverse=True)
 
-        # Формуємо повідомлення
+        # Виявлення кластерного руху (одночасні великі потоки)
+        cluster_symbols = [i['symbol'] for i in insights if abs(i['data']['net_flow']) > 1.0]
+        cluster_text = "Кластерний рух: " + ", ".join(cluster_symbols) if cluster_symbols else "Кластерів не виявлено"
+
+        # Формування повідомлення
         text = "<b>🌑 AI DARK POOL FLOW ANALYSIS</b>\n\n"
         for i, ins in enumerate(insights[:5]):
             s = ins['symbol']
             dp = ins['data']
             direction_emoji = "🟢" if dp['net_flow'] > 0 else "🔴"
-            size_emoji = "🐋" if dp['net_flow'] > 1 else "🐬"
+            size_emoji = "🐋" if abs(dp['net_flow']) > 1 else "🐬"
             text += f"{i+1}. {direction_emoji} {size_emoji} <b>{s}</b>\n"
             text += f"   📊 Net Flow: {dp['net_flow']:+.2f}M\n"
             text += f"   🔮 AI Confidence: {dp['confidence']}%\n"
@@ -2027,11 +2028,13 @@ def dark_pool_flow_handler(message):
             text += f"   🕵 Hidden Accumulation Score: {dp['hidden_accumulation_score']}\n"
             if dp['unusual_activity']:
                 text += f"   ⚡ Detected stealth accumulation!\n"
-            rec = generate_ai_recommendation(dp, ins['price_change'])
+            rec = generate_ai_recommendation(dp)
             text += f"   💡 {rec}\n\n"
 
+        text += f"🌐 {cluster_text}\n"
         text += f"🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
         bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
+
     except Exception as e:
         logger.error(f"AI Dark Pool error: {e}")
         bot.send_message(message.chat.id, f"❌ Error: {str(e)[:100]}...")
