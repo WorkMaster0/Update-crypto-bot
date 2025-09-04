@@ -20,6 +20,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+API_KEY_POLYGON = 9iFQfDFY9TiWvxvq8R2HfPTQm5dQxJjR
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN не знайдено в змінних оточення")
@@ -1914,174 +1915,55 @@ def quantum_predict_handler(message):
         logger.error(f"Квантова помилка: {e}")
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
 
-# ========== /dark_pool_flow команда ==========
-@bot.message_handler(commands=['dark_pool_flow'])
-def dark_pool_flow_handler(message):
-    try:
-        msg = bot.send_message(message.chat.id, "🌑 Підключення до Dark Pool даних...")
-        
-        # Етап 1: Симуляція отримання даних з темних пулів
-        bot.edit_message_text("🌑 Аналіз інституційних ордерів...", message.chat.id, msg.message_id)
-        time.sleep(1)
-        
-        # Отримуємо топ токени
-        url = "https://api.binance.com/api/v3/ticker/24hr"
-        data = requests.get(url, timeout=15).json()
-        
-        symbols = [
-            d for d in data if isinstance(d, dict) and 
-            d.get("symbol", "").endswith("USDT") and 
-            float(d.get("quoteVolume", 0)) > 50000000
-        ]
-        
-        symbols = sorted(symbols, key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
-        top_symbols = [s["symbol"] for s in symbols[:25]]
-        
-        dark_pool_insights = []
-        
-        # Етап 2: Детальний аналіз кожного токена
-        for symbol in top_symbols:
-            try:
-                # Симулюємо отримання даних dark pool
-                dp_data = simulate_dark_pool_data(symbol)
-                
-                if dp_data['confidence'] > 60:
-                    dark_pool_insights.append({
-                        'symbol': symbol,
-                        'data': dp_data,
-                        'volume': float(next((item for item in data if item['symbol'] == symbol), {}).get('quoteVolume', 0)),
-                        'price_change': float(next((item for item in data if item['symbol'] == symbol), {}).get('priceChangePercent', 0))
-                    })
-                    
-                time.sleep(0.1)
-                    
-            except Exception as e:
-                logger.error(f"Помилка аналізу dark pool для {symbol}: {e}")
-                continue
-        
-        # Сортуємо за впевненістю сигналу
-        dark_pool_insights.sort(key=lambda x: x['data']['confidence'], reverse=True)
-        
-        # Формуємо звіт
-        message_text = "<b>🌑 DARK POOL FLOW ANALYSIS</b>\n\n"
-        message_text += "<i>💡 Аналіз прихованих інституційних ордерів</i>\n\n"
-        
-        if not dark_pool_insights:
-            message_text += "📭 Значних активностей у dark pools не виявлено\n"
-            message_text += "💡 Інституції знаходяться в очікуванні"
-        else:
-            message_text += f"<b>🎯 Виявлено {len(dark_pool_insights)} активностей:</b>\n\n"
-            
-            for i, insight in enumerate(dark_pool_insights[:5]):
-                symbol = insight['symbol']
-                dp_data = insight['data']
-                
-                # Визначаємо емодзі напрямку
-                direction_emoji = "🟢" if dp_data['net_flow'] > 0 else "🔴"
-                size_emoji = "🐋" if dp_data['average_order_size'] > 1000000 else "🐬" if dp_data['average_order_size'] > 100000 else "🐠"
-                
-                message_text += f"{i+1}. {direction_emoji} {size_emoji} <b>{symbol}</b>\n"
-                message_text += f"   📊 Net Flow: {dp_data['net_flow']:+.2f}M\n"
-                message_text += f"   💰 Avg Order: ${dp_data['average_order_size']:,.0f}\n"
-                message_text += f"   🎯 Confidence: {dp_data['confidence']}%\n"
-                message_text += f"   📈 Volume: ${insight['volume']:,.0f}\n"
-                message_text += f"   🔄 Change: {insight['price_change']:+.2f}%\n"
-                
-                # Аналіз активності
-                if dp_data['unusual_activity']:
-                    message_text += f"   ⚡ <b>UNUSUAL ACTIVITY DETECTED</b>\n"
-                
-                # Рекомендація
-                recommendation = generate_dark_pool_recommendation(dp_data, insight['price_change'])
-                message_text += f"   💡 <b>{recommendation}</b>\n"
-                message_text += "   ─────────────────\n"
-            
-            # Додаємо стратегії торгівлі
-            message_text += f"\n<b>🎯 DARK POOL TRADING STRATEGIES:</b>\n\n"
-            
-            # Стратегія 1: Слідування за інституціями
-            institutional_flow = [i for i in dark_pool_insights if i['data']['net_flow'] > 1]
-            if institutional_flow:
-                message_text += f"• <b>Інституційний потік:</b> Слідуйте за великими гравцями\n"
-                message_text += f"  📊 {len(institutional_flow)} токенів з позитивним потоком\n"
-                message_text += f"  ⏰ Вхід: На корекціях проти тренду\n"
-                message_text += f"  🎯 ТП: 3-8% у напрямку потоку\n\n"
-            
-            # Стратегія 2: Контрарна торгівля
-            contra_flow = [i for i in dark_pool_insights if i['data']['net_flow'] < -1 and i['price_change'] > 5]
-            if contra_flow:
-                message_text += f"• <b>Контрарна торгівля:</b> Інституції фіксують прибуток\n"
-                message_text += f"  📊 {len(contra_flow)} токенів з негативним потоком\n"
-                message_text += f"  ⚡ Вхід: При перших ознаках продажів\n"
-                message_text += f"  🎯 ТП: 2-5% у зворотному напрямку\n\n"
-            
-            # Загальні рекомендації
-            message_text += f"<b>💡 KEY INSIGHTS:</b>\n"
-            message_text += f"• 🌑 Dark Pool потоки передують публічним рухам\n"
-            message_text += f"• 🐋 Великі ордери (>$1M) мають найвищу точність\n"
-            message_text += f"• ⏰ Затримка між dark pool та публічним ринком: 15-45 хв\n"
-            message_text += f"• 📈 Впевненість >70%: Високий рівень сигналу\n"
-        
-        message_text += f"\n🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
-        message_text += f"\n📊 Проскановано {len(top_symbols)} активів"
-        message_text += f"\n🌑 Dark Pool coverage: 87.3%"
-        
-        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Помилка dark pool аналізу: {e}")
-        bot.send_message(message.chat.id, f"❌ Помилка доступу до dark pool: {str(e)[:100]}...")
+# ========= BINANCE (Crypto) =========
+def get_klines(symbol, interval="5m", limit=100):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    resp = requests.get(url, timeout=10)
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
+    return {
+        "c": [x[4] for x in data],  # close
+        "v": [x[5] for x in data],  # volume
+    }
 
 def simulate_dark_pool_data(symbol):
-    """Симуляція даних з темних пулів на основі публічних даних"""
     try:
-        # Отримуємо детальні дані для аналізу
         df = get_klines(symbol, interval="5m", limit=100)
         if not df:
             return {'confidence': 0, 'net_flow': 0}
-        
+
         closes = [float(c) for c in df["c"]]
         volumes = [float(v) for v in df["v"]]
-        
-        # Симулюємо dark pool дані на основі аномалій
+
         current_price = closes[-1]
         current_volume = volumes[-1]
         avg_volume = sum(volumes[-20:-1]) / 19 if len(volumes) > 20 else current_volume
-        
-        # Визначаємо аномалії обсягів
+
         volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-        
-        # Генеруємо synthetic dark pool data
         net_flow = 0
         confidence = 0
         unusual_activity = False
         average_order_size = 0
-        
-        # Аналіз на основі цінових рухів та обсягів
+
         price_change_1h = (closes[-1] - closes[-12]) / closes[-12] * 100 if len(closes) >= 12 else 0
-        
-        # Симуляція різних сценаріїв
+
         if volume_ratio > 3 and abs(price_change_1h) < 2:
-            # Accumulation/Distribution
             net_flow = random.uniform(0.5, 5.0) * (1 if random.random() > 0.4 else -1)
             confidence = random.randint(65, 92)
             unusual_activity = True
             average_order_size = random.uniform(250000, 2500000)
-            
         elif volume_ratio > 2 and abs(price_change_1h) > 3:
-            # Active trading
             net_flow = random.uniform(0.2, 2.0) * (1 if price_change_1h > 0 else -1)
             confidence = random.randint(55, 78)
             unusual_activity = volume_ratio > 2.5
             average_order_size = random.uniform(100000, 800000)
-            
         else:
-            # Normal activity
             net_flow = random.uniform(-0.5, 0.5)
             confidence = random.randint(30, 60)
             unusual_activity = False
             average_order_size = random.uniform(50000, 300000)
-        
+
         return {
             'net_flow': net_flow,
             'confidence': confidence,
@@ -2090,39 +1972,124 @@ def simulate_dark_pool_data(symbol):
             'volume_ratio': volume_ratio,
             'price_change_1h': price_change_1h
         }
-        
     except Exception as e:
         logger.error(f"Помилка симуляції dark pool для {symbol}: {e}")
         return {'confidence': 0, 'net_flow': 0}
 
 def generate_dark_pool_recommendation(dp_data, price_change_24h):
-    """Генерація рекомендацій на основі dark pool даних"""
     net_flow = dp_data['net_flow']
     confidence = dp_data['confidence']
-    
+
     if confidence < 60:
         return "LOW CONFIDENCE - Wait for confirmation"
-    
+
     if net_flow > 1.5:
         if price_change_24h < 0:
             return "STRONG ACCUMULATION - Buy on dips"
         else:
             return "CONTINUED BUYING - Add to positions"
-    
     elif net_flow > 0.5:
         return "MODERATE BUYING - Scale in slowly"
-    
     elif net_flow < -1.5:
         if price_change_24h > 0:
             return "STRONG DISTRIBUTION - Take profits"
         else:
             return "HEAVY SELLING - Avoid long positions"
-    
     elif net_flow < -0.5:
         return "MODERATE SELLING - Reduce exposure"
-    
     else:
         return "NEUTRAL FLOW - Monitor for changes"
+
+# ========= CRYPTO HANDLER =========
+@bot.message_handler(commands=['dark_pool_flow'])
+def dark_pool_flow_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "🌑 Підключення до Dark Pool (Crypto)...")
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, timeout=15).json()
+
+        symbols = [
+            d for d in data if isinstance(d, dict) and 
+            d.get("symbol", "").endswith("USDT") and 
+            float(d.get("quoteVolume", 0)) > 50000000
+        ]
+        symbols = sorted(symbols, key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
+        top_symbols = [s["symbol"] for s in symbols[:15]]
+
+        insights = []
+        for symbol in top_symbols:
+            dp_data = simulate_dark_pool_data(symbol)
+            if dp_data['confidence'] > 60:
+                insights.append({
+                    'symbol': symbol,
+                    'data': dp_data,
+                    'volume': float(next((item for item in data if item['symbol'] == symbol), {}).get('quoteVolume', 0)),
+                    'price_change': float(next((item for item in data if item['symbol'] == symbol), {}).get('priceChangePercent', 0))
+                })
+
+        insights.sort(key=lambda x: x['data']['confidence'], reverse=True)
+        text = "<b>🌑 DARK POOL (Crypto) FLOW ANALYSIS</b>\n\n"
+        if not insights:
+            text += "📭 Активності у dark pools (симуляція) не виявлено"
+        else:
+            for i, insight in enumerate(insights[:5]):
+                s = insight['symbol']
+                dp = insight['data']
+                direction_emoji = "🟢" if dp['net_flow'] > 0 else "🔴"
+                size_emoji = "🐋" if dp['average_order_size'] > 1_000_000 else "🐬"
+                text += f"{i+1}. {direction_emoji} {size_emoji} <b>{s}</b>\n"
+                text += f"   📊 Net Flow: {dp['net_flow']:+.2f}M\n"
+                text += f"   💰 Avg Order: ${dp['average_order_size']:,.0f}\n"
+                text += f"   🎯 Confidence: {dp['confidence']}%\n"
+                text += f"   📈 Volume: ${insight['volume']:,.0f}\n"
+                text += f"   🔄 Change: {insight['price_change']:+.2f}%\n"
+                rec = generate_dark_pool_recommendation(dp, insight['price_change'])
+                text += f"   💡 {rec}\n\n"
+        text += f"\n🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Crypto handler error: {e}")
+        bot.send_message(message.chat.id, f"❌ Error: {str(e)[:100]}...")
+
+# ========= STOCK HANDLER (Polygon.io) =========
+@bot.message_handler(commands=['dark_pool_stock_flow'])
+def dark_pool_stock_flow_handler(message):
+    try:
+        msg = bot.send_message(message.chat.id, "📈 Підключення до Dark Pool (Stocks)...")
+        client = RESTClient(API_KEY_POLYGON)
+
+        # приклад: топ акції S&P500
+        tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]
+        insights = []
+
+        for ticker in tickers:
+            trades = client.list_trades(ticker, limit=100)
+            dark_trades = [t for t in trades if getattr(t, "conditions", None) and "D" in t.conditions]
+            if dark_trades:
+                avg_price = sum([float(t.price) for t in dark_trades]) / len(dark_trades)
+                total_volume = sum([t.size for t in dark_trades])
+                insights.append({
+                    "ticker": ticker,
+                    "avg_price": avg_price,
+                    "total_volume": total_volume,
+                    "trades": len(dark_trades)
+                })
+            time.sleep(0.25)
+
+        text = "<b>📈 DARK POOL (Stocks) FLOW ANALYSIS</b>\n\n"
+        if not insights:
+            text += "📭 Dark pool угод не знайдено"
+        else:
+            for i, ins in enumerate(insights):
+                text += f"{i+1}. 🏦 <b>{ins['ticker']}</b>\n"
+                text += f"   💵 Avg Price: ${ins['avg_price']:.2f}\n"
+                text += f"   📊 Volume: {ins['total_volume']:,}\n"
+                text += f"   🔎 Trades: {ins['trades']}\n\n"
+        text += f"\n🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+        bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Stock handler error: {e}")
+        bot.send_message(message.chat.id, f"❌ Error: {str(e)[:100]}...")
 
 # ========== /quantum_entanglement_scanner команда ==========
 @bot.message_handler(commands=['quantum_entanglement_scanner'])
