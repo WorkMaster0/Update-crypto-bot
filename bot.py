@@ -21,7 +21,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-API_KEY_POLYGON = os.environ.get("POLYGON_API_KEY")
+API_KEY_POLYGON = os.environ.get("POLYGON_API_KEY", "9iFQfDFY9TiWvxvq8R2HfPTQm5dQxJjR")
+client = RESTClient(api_key=API_KEY_POLYGON)
+
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN не знайдено в змінних оточення")
