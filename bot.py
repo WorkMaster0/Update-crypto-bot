@@ -1,3 +1,4 @@
+from polygon import RESTClient
 import numpy as np
 import random
 from quantum_predictor import quantum_predictor
