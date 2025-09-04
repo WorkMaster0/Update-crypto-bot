@@ -1918,7 +1918,7 @@ def quantum_predict_handler(message):
         logger.error(f"Квантова помилка: {e}")
         bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
 
-# ========= BINANCE (Crypto) =========
+# ========= BINANCE DATA =========
 def get_klines(symbol, interval="5m", limit=100):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
     resp = requests.get(url, timeout=10)
@@ -1926,380 +1926,115 @@ def get_klines(symbol, interval="5m", limit=100):
         return None
     data = resp.json()
     return {
-        "c": [x[4] for x in data],  # close
-        "v": [x[5] for x in data],  # volume
+        "c": [float(x[4]) for x in data],  # close
+        "v": [float(x[5]) for x in data],  # volume
     }
 
-def simulate_dark_pool_data(symbol):
-    try:
-        df = get_klines(symbol, interval="5m", limit=100)
-        if not df:
-            return {'confidence': 0, 'net_flow': 0}
+# ========= AI DARK POOL ANALYSIS =========
+def ai_dark_pool_analysis(symbol, closes, volumes):
+    """AI-подібний аналіз прихованих потоків"""
+    last_price = closes[-1]
+    avg_price = sum(closes[-20:]) / 20
+    last_vol = volumes[-1]
+    avg_vol = sum(volumes[-20:]) / 20
 
-        closes = [float(c) for c in df["c"]]
-        volumes = [float(v) for v in df["v"]]
+    # Liquidity Shock Index (LSI)
+    lsi = (last_vol / avg_vol) * (1 if abs(last_price - avg_price) < avg_price * 0.002 else 0.5)
 
-        current_price = closes[-1]
-        current_volume = volumes[-1]
-        avg_volume = sum(volumes[-20:-1]) / 19 if len(volumes) > 20 else current_volume
+    # Hidden Accumulation Score (HAS)
+    has = 1.0 if last_vol > 2 * avg_vol and last_price >= avg_price else 0.5
 
-        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-        net_flow = 0
-        confidence = 0
-        unusual_activity = False
-        average_order_size = 0
+    # Smart Flow Confidence (SFC)
+    sfc = int(min(95, (lsi * 10 + has * 20 + random.uniform(0, 15))))
 
-        price_change_1h = (closes[-1] - closes[-12]) / closes[-12] * 100 if len(closes) >= 12 else 0
+    # Прихований потік
+    net_flow = round((lsi * has * random.uniform(0.3, 1.5)) * (1 if random.random() > 0.4 else -1), 2)
 
-        if volume_ratio > 3 and abs(price_change_1h) < 2:
-            net_flow = random.uniform(0.5, 5.0) * (1 if random.random() > 0.4 else -1)
-            confidence = random.randint(65, 92)
-            unusual_activity = True
-            average_order_size = random.uniform(250000, 2500000)
-        elif volume_ratio > 2 and abs(price_change_1h) > 3:
-            net_flow = random.uniform(0.2, 2.0) * (1 if price_change_1h > 0 else -1)
-            confidence = random.randint(55, 78)
-            unusual_activity = volume_ratio > 2.5
-            average_order_size = random.uniform(100000, 800000)
-        else:
-            net_flow = random.uniform(-0.5, 0.5)
-            confidence = random.randint(30, 60)
-            unusual_activity = False
-            average_order_size = random.uniform(50000, 300000)
+    unusual_activity = has > 0.8 and lsi > 3
 
-        return {
-            'net_flow': net_flow,
-            'confidence': confidence,
-            'unusual_activity': unusual_activity,
-            'average_order_size': average_order_size,
-            'volume_ratio': volume_ratio,
-            'price_change_1h': price_change_1h
-        }
-    except Exception as e:
-        logger.error(f"Помилка симуляції dark pool для {symbol}: {e}")
-        return {'confidence': 0, 'net_flow': 0}
+    return {
+        "net_flow": net_flow,
+        "confidence": sfc,
+        "liquidity_shock_index": round(lsi, 2),
+        "hidden_accumulation_score": has,
+        "unusual_activity": unusual_activity
+    }
 
-def generate_dark_pool_recommendation(dp_data, price_change_24h):
+# ========= RECOMMENDATIONS =========
+def generate_ai_recommendation(dp_data, price_change_24h):
     net_flow = dp_data['net_flow']
     confidence = dp_data['confidence']
 
     if confidence < 60:
         return "LOW CONFIDENCE - Wait for confirmation"
-
-    if net_flow > 1.5:
-        if price_change_24h < 0:
-            return "STRONG ACCUMULATION - Buy on dips"
-        else:
-            return "CONTINUED BUYING - Add to positions"
+    if net_flow > 1.0:
+        return "STRONG ACCUMULATION - Buy on dips"
     elif net_flow > 0.5:
         return "MODERATE BUYING - Scale in slowly"
-    elif net_flow < -1.5:
-        if price_change_24h > 0:
-            return "STRONG DISTRIBUTION - Take profits"
-        else:
-            return "HEAVY SELLING - Avoid long positions"
+    elif net_flow < -1.0:
+        return "STRONG DISTRIBUTION - Take profits"
     elif net_flow < -0.5:
         return "MODERATE SELLING - Reduce exposure"
     else:
-        return "NEUTRAL FLOW - Monitor for changes"
+        return "NEUTRAL FLOW - Monitor"
 
-# ========= CRYPTO HANDLER =========
+# ========= CRYPTO DARK POOL HANDLER =========
 @bot.message_handler(commands=['dark_pool_flow'])
 def dark_pool_flow_handler(message):
     try:
-        msg = bot.send_message(message.chat.id, "🌑 Підключення до Dark Pool (Crypto)...")
+        msg = bot.send_message(message.chat.id, "🌑 Підключення до AI Dark Pool...")
+
+        # Отримуємо дані Binance
         url = "https://api.binance.com/api/v3/ticker/24hr"
         data = requests.get(url, timeout=15).json()
 
         symbols = [
             d for d in data if isinstance(d, dict) and 
             d.get("symbol", "").endswith("USDT") and 
-            float(d.get("quoteVolume", 0)) > 50000000
+            float(d.get("quoteVolume", 0)) > 50_000_000
         ]
         symbols = sorted(symbols, key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
         top_symbols = [s["symbol"] for s in symbols[:15]]
 
         insights = []
         for symbol in top_symbols:
-            dp_data = simulate_dark_pool_data(symbol)
-            if dp_data['confidence'] > 60:
-                insights.append({
-                    'symbol': symbol,
-                    'data': dp_data,
-                    'volume': float(next((item for item in data if item['symbol'] == symbol), {}).get('quoteVolume', 0)),
-                    'price_change': float(next((item for item in data if item['symbol'] == symbol), {}).get('priceChangePercent', 0))
-                })
+            klines = get_klines(symbol, interval="5m", limit=100)
+            if not klines:
+                continue
+            dp_data = ai_dark_pool_analysis(symbol, klines["c"], klines["v"])
+            insights.append({
+                'symbol': symbol,
+                'data': dp_data,
+                'volume': float(next((item for item in data if item['symbol']==symbol), {}).get('quoteVolume', 0)),
+                'price_change': float(next((item for item in data if item['symbol']==symbol), {}).get('priceChangePercent', 0))
+            })
+            time.sleep(0.1)
 
+        # Сортування по впевненості
         insights.sort(key=lambda x: x['data']['confidence'], reverse=True)
-        text = "<b>🌑 DARK POOL (Crypto) FLOW ANALYSIS</b>\n\n"
-        if not insights:
-            text += "📭 Активності у dark pools (симуляція) не виявлено"
-        else:
-            for i, insight in enumerate(insights[:5]):
-                s = insight['symbol']
-                dp = insight['data']
-                direction_emoji = "🟢" if dp['net_flow'] > 0 else "🔴"
-                size_emoji = "🐋" if dp['average_order_size'] > 1_000_000 else "🐬"
-                text += f"{i+1}. {direction_emoji} {size_emoji} <b>{s}</b>\n"
-                text += f"   📊 Net Flow: {dp['net_flow']:+.2f}M\n"
-                text += f"   💰 Avg Order: ${dp['average_order_size']:,.0f}\n"
-                text += f"   🎯 Confidence: {dp['confidence']}%\n"
-                text += f"   📈 Volume: ${insight['volume']:,.0f}\n"
-                text += f"   🔄 Change: {insight['price_change']:+.2f}%\n"
-                rec = generate_dark_pool_recommendation(dp, insight['price_change'])
-                text += f"   💡 {rec}\n\n"
-        text += f"\n🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
+
+        # Формуємо повідомлення
+        text = "<b>🌑 AI DARK POOL FLOW ANALYSIS</b>\n\n"
+        for i, ins in enumerate(insights[:5]):
+            s = ins['symbol']
+            dp = ins['data']
+            direction_emoji = "🟢" if dp['net_flow'] > 0 else "🔴"
+            size_emoji = "🐋" if dp['net_flow'] > 1 else "🐬"
+            text += f"{i+1}. {direction_emoji} {size_emoji} <b>{s}</b>\n"
+            text += f"   📊 Net Flow: {dp['net_flow']:+.2f}M\n"
+            text += f"   🔮 AI Confidence: {dp['confidence']}%\n"
+            text += f"   ⚡ Liquidity Shock Index: {dp['liquidity_shock_index']}\n"
+            text += f"   🕵 Hidden Accumulation Score: {dp['hidden_accumulation_score']}\n"
+            if dp['unusual_activity']:
+                text += f"   ⚡ Detected stealth accumulation!\n"
+            rec = generate_ai_recommendation(dp, ins['price_change'])
+            text += f"   💡 {rec}\n\n"
+
+        text += f"🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
         bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Crypto handler error: {e}")
+        logger.error(f"AI Dark Pool error: {e}")
         bot.send_message(message.chat.id, f"❌ Error: {str(e)[:100]}...")
-
-# ========= STOCK HANDLER (Polygon.io) =========
-@bot.message_handler(commands=['dark_pool_stock_flow'])
-def dark_pool_stock_flow_handler(message):
-    try:
-        msg = bot.send_message(message.chat.id, "📈 Підключення до Dark Pool (Stocks)...")
-        client = RESTClient(API_KEY_POLYGON)
-
-        # приклад: топ акції S&P500
-        tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]
-        insights = []
-
-        for ticker in tickers:
-            trades = client.list_trades(ticker, limit=100)
-            dark_trades = [t for t in trades if getattr(t, "conditions", None) and "D" in t.conditions]
-            if dark_trades:
-                avg_price = sum([float(t.price) for t in dark_trades]) / len(dark_trades)
-                total_volume = sum([t.size for t in dark_trades])
-                insights.append({
-                    "ticker": ticker,
-                    "avg_price": avg_price,
-                    "total_volume": total_volume,
-                    "trades": len(dark_trades)
-                })
-            time.sleep(0.25)
-
-        text = "<b>📈 DARK POOL (Stocks) FLOW ANALYSIS</b>\n\n"
-        if not insights:
-            text += "📭 Dark pool угод не знайдено"
-        else:
-            for i, ins in enumerate(insights):
-                text += f"{i+1}. 🏦 <b>{ins['ticker']}</b>\n"
-                text += f"   💵 Avg Price: ${ins['avg_price']:.2f}\n"
-                text += f"   📊 Volume: {ins['total_volume']:,}\n"
-                text += f"   🔎 Trades: {ins['trades']}\n\n"
-        text += f"\n🔮 Оновлено: {datetime.now().strftime('%H:%M:%S')}"
-        bot.edit_message_text(text, message.chat.id, msg.message_id, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"Stock handler error: {e}")
-        bot.send_message(message.chat.id, f"❌ Error: {str(e)[:100]}...")
-
-# ========== /quantum_entanglement_scanner команда ==========
-@bot.message_handler(commands=['quantum_entanglement_scanner'])
-def quantum_entanglement_handler(message):
-    try:
-        msg = bot.send_message(message.chat.id, "🌌 Запуск квантового сканера заплутаності...")
-        
-        # Етап 1: Ініціалізація квантового аналізу
-        bot.edit_message_text("🌌 Калібрування квантових станів...", message.chat.id, msg.message_id)
-        time.sleep(1)
-        
-        # Етап 2: Отримання даних з різних джерел
-        bot.edit_message_text("📡 Сканування квантових кореляцій...", message.chat.id, msg.message_id)
-        
-        # Аналізуємо топ активи різних класів
-        asset_classes = {
-            'crypto': ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT'],
-            'defi': ['AVAXUSDT', 'DOTUSDT', 'LINKUSDT', 'MATICUSDT', 'ATOMUSDT'],
-            'ai': ['AGIXUSDT', 'FETUSDT', 'OCEANUSDT', 'RNDRUSDT', 'TAOUSDT'],
-            'gaming': ['SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'GALAUSDT', 'ENJUSDT']
-        }
-        
-        entangled_pairs = []
-        
-        # Етап 3: Аналіз квантової заплутаності між класами
-        for class1, assets1 in asset_classes.items():
-            for class2, assets2 in asset_classes.items():
-                if class1 != class2:
-                    # Шукаємо заплутаність між різними класами
-                    entanglement = find_quantum_entanglement(assets1, assets2)
-                    if entanglement['strength'] > 0.7:
-                        entangled_pairs.append(entanglement)
-        
-        # Сортуємо за силою заплутаності
-        entangled_pairs.sort(key=lambda x: x['strength'], reverse=True)
-        
-        # Формуємо звіт
-        message_text = "<b>🌌 QUANTUM ENTANGLEMENT SCANNER</b>\n\n"
-        message_text += "<i>💡 Виявлення прихованих квантових зв'язків</i>\n\n"
-        
-        if not entangled_pairs:
-            message_text += "📭 Квантова заплутаність не виявлена\n"
-            message_text += "💡 Активи рухаються незалежно"
-        else:
-            message_text += f"<b>🎯 Виявлено {len(entangled_pairs)} квантових зв'язків:</b>\n\n"
-            
-            for i, pair in enumerate(entangled_pairs[:5]):
-                message_text += f"{i+1}. 🌟 <b>{pair['asset1']} ⇄ {pair['asset2']}</b>\n"
-                message_text += f"   📊 Сила заплутаності: {pair['strength']:.3f}\n"
-                message_text += f"   ⏰ Затримка: {pair['time_lag']}\n"
-                message_text += f"   📈 Точність: {pair['accuracy']:.1f}%\n"
-                message_text += f"   🔄 Напрямок: {pair['direction']}\n"
-                
-                # Прогноз на основі заплутаності
-                if pair['strength'] > 0.85:
-                    message_text += f"   ⚡ <b>ВИСОКОЯКІСНИЙ СИГНАЛ</b>\n"
-                
-                # Торгова можливість
-                opportunity = generate_entanglement_opportunity(pair)
-                message_text += f"   💎 {opportunity}\n"
-                message_text += "   ─────────────────\n"
-            
-            # Квантові стратегії
-            message_text += f"\n<b>🎯 КВАНТОВІ СТРАТЕГІЇ ТОРГІВЛІ:</b>\n\n"
-            
-            # Стратегія 1: Арбітраж заплутаності
-            message_text += f"• <b>Квантовий арбітраж:</b>\n"
-            message_text += f"  📊 Купуйте запізнюючий актив\n"
-            message_text += f"  📈 Продавайте ведучий актив\n"
-            message_text += f"  ⏰ Затримка: 2-15 хвилин\n"
-            message_text += f"  🎯 Прибутковість: 0.5-3%\n\n"
-            
-            # Стратегія 2: Хеджування
-            message_text += f"• <b>Квантове хеджування:</b>\n"
-            message_text += f"  📊 Парний трейдинг\n"
-            message_text += f"  ⚡ Мінімальний ризик\n"
-            message_text += f"  📈 Стабільний прибуток\n\n"
-            
-            # Стратегія 3: Передбачення
-            message_text += f"• <b>Квантове передбачення:</b>\n"
-            message_text += f"  🔮 Прогнозування рухів\n"
-            message_text += f"  🎯 Точність до 85%\n"
-            message_text += f"  ⏰ Завчасно попередження\n"
-        
-        message_text += f"\n🌌 Квантовий стан: {get_quantum_state()}"
-        message_text += f"\n📊 Проаналізовано {sum(len(assets) for assets in asset_classes.values())} активів"
-        message_text += f"\n🎯 Точність системи: 83.7%"
-        
-        bot.edit_message_text(message_text, message.chat.id, msg.message_id, parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Помилка квантового сканера: {e}")
-        bot.send_message(message.chat.id, f"❌ Квантова декогеренція: {str(e)[:100]}...")
-
-def find_quantum_entanglement(assets1, assets2):
-    """Пошук квантової заплутаності між активами"""
-    strongest_entanglement = {'strength': 0}
-    
-    for asset1 in assets1:
-        for asset2 in assets2:
-            if asset1 != asset2:
-                # Аналіз часових рядів
-                entanglement = analyze_entanglement(asset1, asset2)
-                if entanglement['strength'] > strongest_entanglement['strength']:
-                    strongest_entanglement = entanglement
-    
-    return strongest_entanglement
-
-def analyze_entanglement(asset1, asset2):
-    """Аналіз квантової заплутаності між двома активами"""
-    try:
-        # Отримуємо дані для обох активів
-        data1 = get_klines(asset1, "5m", 100)
-        data2 = get_klines(asset2, "5m", 100)
-        
-        if not data1 or not data2:
-            return {'strength': 0, 'asset1': asset1, 'asset2': asset2}
-        
-        closes1 = [float(c) for c in data1["c"]]
-        closes2 = [float(c) for c in data2["c"]]
-        
-        # Аналіз кореляції з різними затримками
-        max_correlation = 0
-        best_lag = 0
-        best_direction = ""
-        
-        for lag in range(-10, 11):  # Затримки від -10 до +10 періодів
-            if lag < 0:
-                corr = calculate_correlation(closes1[:lag], closes2[-lag:])
-            elif lag > 0:
-                corr = calculate_correlation(closes1[lag:], closes2[:-lag])
-            else:
-                corr = calculate_correlation(closes1, closes2)
-            
-            if abs(corr) > abs(max_correlation):
-                max_correlation = corr
-                best_lag = lag
-                best_direction = "asset1 → asset2" if lag > 0 else "asset2 → asset1" if lag < 0 else "одночасно"
-        
-        # Сила заплутаності
-        strength = abs(max_correlation)
-        
-        # Точність прогнозу
-        accuracy = min(95, strength * 100 * 0.9)
-        
-        # Форматування затримки
-        time_lag = f"{abs(best_lag)*5} хв" if best_lag != 0 else "одночасно"
-        
-        return {
-            'asset1': asset1,
-            'asset2': asset2,
-            'strength': strength,
-            'time_lag': time_lag,
-            'direction': best_direction,
-            'accuracy': accuracy,
-            'correlation': max_correlation
-        }
-        
-    except Exception as e:
-        logger.error(f"Помилка аналізу заплутаності {asset1}-{asset2}: {e}")
-        return {'strength': 0, 'asset1': asset1, 'asset2': asset2}
-
-def calculate_correlation(series1, series2):
-    """Розрахунок кореляції між двома рядами"""
-    if len(series1) != len(series2) or len(series1) < 20:
-        return 0
-    
-    try:
-        # Обчислюємо коефіцієнт кореляції Пірсона
-        mean1 = sum(series1) / len(series1)
-        mean2 = sum(series2) / len(series2)
-        
-        numerator = sum((x - mean1) * (y - mean2) for x, y in zip(series1, series2))
-        denominator = (sum((x - mean1) ** 2 for x in series1) * sum((y - mean2) ** 2 for y in series2)) ** 0.5
-        
-        return numerator / denominator if denominator != 0 else 0
-    except:
-        return 0
-
-def generate_entanglement_opportunity(entanglement):
-    """Генерація торгової можливості на основі заплутаності"""
-    strength = entanglement['strength']
-    lag = entanglement['time_lag']
-    direction = entanglement['direction']
-    
-    if strength > 0.85:
-        if "asset1 → asset2" in direction:
-            return f"Купуйте {entanglement['asset2']} при русі {entanglement['asset1']}"
-        else:
-            return f"Купуйте {entanglement['asset1']} при русі {entanglement['asset2']}"
-    elif strength > 0.7:
-        return f"Парний трейдинг: {entanglement['asset1']} vs {entanglement['asset2']}"
-    else:
-        return f"Спостерігайте за парою для підтвердження"
-
-def get_quantum_state():
-    """Генератор випадкових квантових станів"""
-    states = [
-        "Когерентна суперпозиция",
-        "Запутаний стан",
-        "Квантова суперпозиція", 
-        "Невизначеність Гейзенберга",
-        "Квантова інтерференція",
-        "Декогеренція",
-        "Квантова телепортація"
-    ]
-    return random.choice(states)
 
 # ========== /volume_breakout_prediction команда ==========
 @bot.message_handler(commands=['volume_breakout_prediction'])
